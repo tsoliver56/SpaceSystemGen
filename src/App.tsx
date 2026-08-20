@@ -52,6 +52,7 @@ export default function App() {
   const beltCanvasRef = useRef<HTMLCanvasElement>(null);
   const planetEls = useRef<Record<string, HTMLButtonElement | null>>({});
   const trailPts = useRef<Record<string, { x: number; y: number }[]>>({});
+  const starSpinRef = useRef<HTMLSpanElement | null>(null);
   const simDaysRef = useRef(0);
   const playingRef = useRef(true);
   const speedRef = useRef(2);
@@ -243,6 +244,17 @@ export default function App() {
             }
             beltCtx.globalAlpha = 1;
           }
+        }
+
+        // star selection reticle — its spin mirrors the star's generated
+        // sidereal rotation (slower rotators crawl, fast ones whirl),
+        // scaled so a visual turn takes (10 + rotH·0.12)s at 1×; pauses
+        // and accelerates with the simulation
+        const spinEl = starSpinRef.current;
+        if (spinEl) {
+          const rotH = system.star.rotationHours ?? 120;
+          const visDays = (10 + rotH * 0.12) / 12;
+          spinEl.style.transform = `rotate(${(((sim / visDays) * 360) % 360).toFixed(2)}deg)`;
         }
 
         // planet positions + motion trails
@@ -618,16 +630,24 @@ export default function App() {
                 transform: "translate(-50%,-50%)",
               }}
             >
+              {/* light rays — centering lives on the wrapper so the spin
+                  animation on the inner disc can never displace it */}
               <span
-                className="absolute left-1/2 top-1/2 rounded-full"
+                className="pointer-events-none absolute left-1/2 top-1/2"
                 style={{
                   width: geom.sunVis * 3.6,
                   height: geom.sunVis * 3.6,
                   transform: "translate(-50%,-50%)",
-                  background: `repeating-conic-gradient(from 0deg, ${hexToRgba(system.star.color, 0.1)} 0deg 4deg, transparent 4deg 12deg)`,
-                  animation: "spin 44s linear infinite",
                 }}
-              />
+              >
+                <span
+                  className="absolute inset-0 rounded-full"
+                  style={{
+                    background: `repeating-conic-gradient(from 0deg, ${hexToRgba(system.star.color, 0.1)} 0deg 4deg, transparent 4deg 12deg)`,
+                    animation: "spin 44s linear infinite",
+                  }}
+                />
+              </span>
               <span
                 className="absolute left-1/2 top-1/2 rounded-full"
                 style={{
@@ -656,16 +676,27 @@ export default function App() {
                   boxShadow: `0 0 40px 8px ${system.star.glow}, 0 0 120px 40px ${hexToRgba(system.star.color, 0.18)}`,
                 }}
               />
+              {/* selection reticle — fixed to the star's outer edge; its
+                  rotation is driven by the sim loop from the star's own
+                  sidereal rotation period */}
               {selected?.id === system.star.id && (
                 <span
-                  className="absolute left-1/2 top-1/2 rounded-full border border-dashed"
+                  className="pointer-events-none absolute left-1/2 top-1/2"
                   style={{
-                    width: geom.sunVis * 2.9,
-                    height: geom.sunVis * 2.9,
-                    borderColor: system.star.color,
-                    animation: "spinCenter 9s linear infinite",
+                    width: geom.sunVis * 2 + 12,
+                    height: geom.sunVis * 2 + 12,
+                    transform: "translate(-50%,-50%)",
                   }}
-                />
+                >
+                  <span
+                    ref={starSpinRef}
+                    className="absolute inset-0 rounded-full border border-dashed"
+                    style={{
+                      borderColor: system.star.color,
+                      boxShadow: `0 0 12px ${system.star.glow}`,
+                    }}
+                  />
+                </span>
               )}
               <span
                 className="pointer-events-none absolute left-1/2 top-1/2 whitespace-nowrap opacity-0 transition-opacity duration-300 group-hover:opacity-100"

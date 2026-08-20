@@ -325,6 +325,7 @@ export function generateSystem(seed: number): StarSystem {
 
   const massSolar = rand(spec.mass[0], spec.mass[1]);
   const luminositySolar = Math.pow(massSolar, 3.5);
+  const starRotH = rand(6, 420); // sidereal rotation, hours
   const radiusSolar = Math.pow(massSolar, 0.85); // main-sequence mass–radius relation
   const rhoStar = (1.408 * massSolar) / Math.pow(radiusSolar, 3); // mean density, g/cm³
   /* Fluid Roche limit d = 2.44 · R★ · (ρ★/ρp)^⅓ for the fluffiest plausible
@@ -351,7 +352,10 @@ export function generateSystem(seed: number): StarSystem {
     distanceLabel: "System barycenter",
     periodDays: 0,
     periodLabel: "—",
-    dayLength: `${rand(4, 40).toFixed(1)} h rotation`,
+    dayLength:
+      starRotH >= 48
+        ? `${(starRotH / 24).toFixed(1)} d rotation`
+        : `${starRotH.toFixed(1)} h rotation`,
     moons: "—",
     tempLabel: `${tempK.toLocaleString("en-US")} K surface`,
     speedKmS: 0,
@@ -362,6 +366,7 @@ export function generateSystem(seed: number): StarSystem {
     massSolar,
     luminositySolar,
     radiusSolar,
+    rotationHours: starRotH,
     rocheAU: rocheFluid,
     ageLabel: `≈${rand(0.2, 10.5).toFixed(1)} Gyr`,
   };

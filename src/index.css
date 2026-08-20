@@ -48,12 +48,6 @@ body {
   }
 }
 
-@keyframes spinCenter {
-  to {
-    transform: translate(-50%, -50%) rotate(360deg);
-  }
-}
-
 @keyframes blink {
   0%,
   100% {

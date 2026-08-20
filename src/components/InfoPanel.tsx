@@ -337,7 +337,7 @@ export default function InfoPanel({ body, onClose, simDaysRef }: InfoPanelProps)
 
             <div className="mt-4 space-y-3 border-t border-white/8 pt-4">
               <Meter label="SEMI-MAJOR AXIS · √ SCALE" value={`${body.distanceAU.toFixed(2)} AU`} frac={Math.sqrt(body.distanceAU) / Math.sqrt(30)} color={body.color} />
-              <Meter label="YEAR LENGTH · NEPTUNE = 1" value={body.periodLabel} frac={Math.pow(body.periodDays / 60190, 0.35)} color={body.color} />
+              <Meter label="YEAR LENGTH" value={body.periodLabel} frac={Math.pow(body.periodDays / 60190, 0.35)} color={body.color} />
               <Meter
                 label="TIDAL SAFETY · DISRUPTION = 1"
                 value={`×${Math.round(body.rocheMargin ?? 0)} ROCHE`}
