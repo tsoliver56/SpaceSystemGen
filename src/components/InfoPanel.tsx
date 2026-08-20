@@ -1,213 +1,186 @@
-import { useEffect, useState, type MutableRefObject } from "react";
-import { fmtKm, MAX_AU, type CelestialBody } from "../data/bodies";
+import { useEffect, useState, type RefObject } from "react";
+import { fmtSim, type Body } from "../lib/generator";
 
 interface InfoPanelProps {
-  body: CelestialBody;
+  body: Body;
   onClose: () => void;
-  simDaysRef: MutableRefObject<number>;
+  simDaysRef: RefObject<number>;
 }
 
-const Stat = ({ label, value }: { label: string; value: string }) => (
-  <div className="border border-white/8 bg-white/[0.03] px-2.5 py-2">
-    <p className="text-[8px] tracking-[0.22em] text-white/35">{label}</p>
-    <p className="mt-0.5 text-[12px] font-bold leading-tight text-white/90">{value}</p>
-  </div>
+const CloseIcon = () => (
+  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+    <path d="M6 6l12 12M18 6L6 18" />
+  </svg>
 );
 
-const Bar = ({
-  label,
-  display,
-  pct,
-  color,
-  armed,
-}: {
-  label: string;
-  display: string;
-  pct: number;
-  color: string;
-  armed: boolean;
-}) => (
-  <div>
-    <div className="flex items-baseline justify-between">
-      <span className="text-[8px] tracking-[0.22em] text-white/40">{label}</span>
-      <span className="text-[10px] tabular-nums text-white/70">{display}</span>
+function Stat({ label, value, accent }: { label: string; value: string; accent?: string }) {
+  return (
+    <div className="border border-white/8 bg-white/[0.025] px-3 py-2.5 transition-colors duration-200 hover:border-white/20 hover:bg-white/[0.05]">
+      <div className="text-[8px] tracking-[0.22em] text-white/40">{label}</div>
+      <div className="mt-1 text-[13px] font-bold tabular-nums" style={{ color: accent ?? "#f2f6ff" }}>
+        {value}
+      </div>
     </div>
-    <div className="mt-1 h-1 w-full bg-white/8">
-      <div
-        className="h-full transition-[width] duration-700 ease-out"
-        style={{
-          width: armed ? `${Math.max(2, Math.min(100, pct))}%` : "0%",
-          background: color,
-          boxShadow: `0 0 8px ${color}`,
-        }}
-      />
+  );
+}
+
+function Meter({ label, value, frac, color }: { label: string; value: string; frac: number; color: string }) {
+  const [w, setW] = useState(0);
+  useEffect(() => {
+    setW(0);
+    const id = window.setTimeout(() => setW(Math.max(0.02, Math.min(1, frac))), 40);
+    return () => window.clearTimeout(id);
+  }, [frac]);
+  return (
+    <div>
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[8px] tracking-[0.22em] text-white/40">{label}</span>
+        <span className="text-[10px] tabular-nums text-white/60">{value}</span>
+      </div>
+      <div className="mt-1 h-[3px] w-full overflow-hidden bg-white/8">
+        <div
+          className="h-full rounded-full transition-[width] duration-700 ease-out"
+          style={{
+            width: `${w * 100}%`,
+            background: `linear-gradient(90deg, ${color}55, ${color})`,
+            boxShadow: `0 0 8px ${color}88`,
+          }}
+        />
+      </div>
     </div>
-  </div>
-);
+  );
+}
 
 export default function InfoPanel({ body, onClose, simDaysRef }: InfoPanelProps) {
-  const [, forceTick] = useState(0);
-  const [armed, setArmed] = useState(false);
+  const [phase, setPhase] = useState<{ pct: string; clock: string }>({ pct: "0.0", clock: fmtSim(0) });
 
-  // live readout while the simulation runs
   useEffect(() => {
-    const id = window.setInterval(() => forceTick((x) => x + 1), 150);
+    const id = window.setInterval(() => {
+      const sim = simDaysRef.current ?? 0;
+      const pct = body.isStar ? 0 : ((sim % body.periodDays) / body.periodDays) * 100;
+      setPhase({ pct: pct.toFixed(1), clock: fmtSim(sim) });
+    }, 120);
     return () => window.clearInterval(id);
-  }, []);
+  }, [body, simDaysRef]);
 
-  // animate bars in on each new body
-  useEffect(() => {
-    setArmed(false);
-    const t = window.setTimeout(() => setArmed(true), 80);
-    return () => window.clearTimeout(t);
-  }, [body.id]);
-
-  const phasePeriod = body.isStar ? 25.4 : body.periodDays;
-  const sim = simDaysRef.current;
-  const dayInPhase = ((sim % phasePeriod) + phasePeriod) % phasePeriod;
-  const phasePct = (dayInPhase / phasePeriod) * 100;
-
-  const sizePct = Math.pow(body.diameterKm / 139820, 0.42) * 100;
-  const distPct = body.isStar ? 0 : Math.pow(body.distanceAU / MAX_AU, 0.5) * 100;
-  const velPct = (body.speedKmS / 47.4) * 100;
+  const isStar = !!body.isStar;
+  const sizeFrac = Math.pow(body.diameterKm / 139820, 0.5);
+  const distFrac = isStar ? 1 : Math.sqrt(body.distanceAU) / Math.sqrt(40);
+  const periodFrac = isStar ? 1 : Math.pow(body.periodDays / 60190, 0.35);
 
   return (
     <aside
-      role="dialog"
-      aria-label={`${body.name} details`}
-      className="scroll-slim fixed inset-x-2 bottom-2 z-50 max-h-[52dvh] overflow-y-auto border border-white/12 bg-panel/97 shadow-[0_20px_60px_rgba(0,0,0,0.6)] md:absolute md:inset-x-auto md:bottom-[76px] md:right-3 md:top-[70px] md:z-40 md:max-h-none md:w-[330px]"
-      style={{ animation: "sheetin .35s cubic-bezier(.2,.9,.3,1) both" }}
+      className="absolute inset-x-0 bottom-[60px] z-30 max-h-[52dvh] overflow-y-auto border-t bg-[#070c18]/94 backdrop-blur-sm md:inset-y-0 md:bottom-auto md:right-0 md:left-auto md:max-h-none md:w-[376px] md:border-l md:border-t-0"
+      style={{ animation: "sheetin .45s cubic-bezier(.2,.8,.25,1) both" }}
+      aria-label={`Details for ${body.name}`}
     >
-      <div className="h-[3px] w-full" style={{ background: body.color }} />
-
-      <div className="p-4">
+      <div className="px-5 pb-7 pt-5 md:px-6" style={{ animation: "rise .5s .08s cubic-bezier(.2,.8,.25,1) both" }}>
         {/* header */}
-        <div className="flex items-start gap-3.5">
-          <div className="relative h-[68px] w-[68px] shrink-0">
-            {body.rings && (
-              <span
-                className="absolute left-1/2 top-1/2 rounded-[50%]"
-                style={{
-                  width: 64,
-                  height: 64,
-                  border: "2px solid rgba(235,205,140,0.75)",
-                  transform: "translate(-50%,-50%) rotate(-16deg) scaleY(0.32)",
-                }}
-              />
-            )}
-            <span
-              className="absolute left-1/2 top-1/2 block -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-full"
-              style={{
-                width: body.isStar ? 56 : 44,
-                height: body.isStar ? 56 : 44,
-                background: `radial-gradient(circle at 32% 30%, ${body.colorSoft} 0%, ${body.color} 48%, ${body.colorDark} 100%)`,
-                boxShadow: `0 0 22px ${body.glow}`,
-              }}
-            >
-              {body.bands && (
-                <span
-                  className="absolute inset-0 opacity-50"
-                  style={{
-                    background:
-                      "repeating-linear-gradient(90deg, rgba(0,0,0,0.18) 0 3px, rgba(255,255,255,0.10) 3px 4px, transparent 4px 8px)",
-                    animation: "bandflow 10s linear infinite",
-                  }}
-                />
-              )}
-            </span>
-            {body.isStar && (
-              <span
-                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full"
-                style={{
-                  width: 66,
-                  height: 66,
-                  background: "radial-gradient(circle, rgba(255,190,80,0.35), transparent 70%)",
-                  animation: "blink 3s ease-in-out infinite",
-                }}
-              />
-            )}
+        <div className="flex items-start gap-4">
+          <div
+            className="relative h-12 w-12 shrink-0 rounded-full"
+            style={{
+              background: `radial-gradient(circle at 32% 30%, ${body.colorSoft}, ${body.color} 52%, ${body.colorDark})`,
+              boxShadow: `0 0 22px ${body.glow}`,
+            }}
+          >
+            <span className="absolute -inset-1.5 rounded-full border border-dashed border-white/25" style={{ animation: "spin 12s linear infinite" }} />
           </div>
-
           <div className="min-w-0 flex-1">
-            <p className="text-[9px] tracking-[0.3em]" style={{ color: body.color }}>
-              SCAN COMPLETE
+            <p className="text-[8px] tracking-[0.3em] text-white/40">
+              SCAN COMPLETE · {body.designation.toUpperCase()}
             </p>
-            <h2 className="font-display text-[24px] font-black uppercase leading-none tracking-[0.06em] text-white">
-              {body.name}
+            <h2 className="font-display mt-0.5 truncate text-[26px] font-black leading-none" style={{ color: body.colorSoft }}>
+              {body.name.toUpperCase()}
             </h2>
-            <p className="mt-1.5 inline-block border border-white/15 px-1.5 py-0.5 text-[9px] tracking-[0.2em] text-white/55">
-              {body.type.toUpperCase()}
-            </p>
+            <p className="mt-1 text-[10px] tracking-[0.2em] text-white/55">{body.type.toUpperCase()}</p>
           </div>
-
           <button
             onClick={onClose}
-            aria-label="Close details"
-            className="flex h-7 w-7 shrink-0 items-center justify-center border border-white/12 text-white/45 transition-colors duration-150 hover:border-white/40 hover:text-white"
+            aria-label="Close panel"
+            className="rounded border border-white/12 p-1.5 text-white/50 transition-colors duration-200 hover:border-white/40 hover:text-white"
           >
-            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
-              <path d="M6 6l12 12M18 6L6 18" />
-            </svg>
+            <CloseIcon />
           </button>
         </div>
 
-        {/* live phase */}
-        <div className="mt-4 border border-white/8 bg-white/[0.03] px-3 py-2.5">
+        {/* live orbital phase */}
+        <div className="mt-5 border border-white/8 bg-white/[0.02] px-3 py-2.5">
           <div className="flex items-baseline justify-between">
-            <span className="text-[8px] tracking-[0.22em] text-white/40">
-              {body.isStar ? "ROTATION PHASE · LIVE" : "ORBIT PHASE · LIVE"}
+            <span className="text-[8px] tracking-[0.25em] text-white/40">
+              {isStar ? "MISSION CLOCK" : "ORBITAL PHASE"}
             </span>
-            <span className="text-[10px] tabular-nums text-white/70">
-              day {Math.floor(dayInPhase)} / {body.isStar ? "25.4" : Math.round(body.periodDays).toLocaleString("en-US")}
+            <span className="text-[11px] tabular-nums" style={{ color: body.colorSoft }}>
+              {isStar ? phase.clock : `${phase.pct}% · ${phase.clock}`}
             </span>
           </div>
-          <div className="mt-1.5 h-1 w-full bg-white/8">
-            <div
-              className="h-full"
-              style={{
-                width: `${phasePct}%`,
-                background: body.color,
-                boxShadow: `0 0 8px ${body.color}`,
-                transition: "width .15s linear",
-              }}
-            />
-          </div>
+          {!isStar && (
+            <div className="mt-1.5 h-[3px] overflow-hidden bg-white/8">
+              <div
+                className="h-full"
+                style={{
+                  width: `${phase.pct}%`,
+                  background: body.color,
+                  boxShadow: `0 0 8px ${body.glow}`,
+                  transition: "width .12s linear",
+                }}
+              />
+            </div>
+          )}
         </div>
 
         {/* stats */}
-        <div className="mt-3 grid grid-cols-2 gap-1.5">
-          <Stat label="DIAMETER" value={fmtKm(body.diameterKm)} />
-          <Stat label="DISTANCE FROM SUN" value={body.distanceLabel} />
-          <Stat label="ORBITAL PERIOD" value={body.periodLabel} />
-          <Stat label="DAY LENGTH" value={body.dayLength} />
-          <Stat label="MOONS" value={body.moons} />
-          <Stat label="TEMPERATURE" value={body.tempLabel} />
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <Stat label="DIAMETER" value={`${body.diameterKm.toLocaleString("en-US")} km`} accent={body.colorSoft} />
+          {isStar ? (
+            <>
+              <Stat label="MASS" value={`${(body.massSolar ?? 1).toFixed(2)} M☉`} />
+              <Stat label="LUMINOSITY" value={`${(body.luminositySolar ?? 1).toFixed(2)} L☉`} />
+              <Stat label="SURFACE TEMP" value={body.tempLabel} />
+              <Stat label="ROTATION" value={body.dayLength} />
+              <Stat label="AGE" value={body.ageLabel ?? "—"} />
+              <Stat label="WORLDS" value={String(body.worlds ?? 0)} accent={body.colorSoft} />
+              <Stat label="CLASS" value={body.type.split(" ")[0]} />
+            </>
+          ) : (
+            <>
+              <Stat label="DIST. FROM STAR" value={body.distanceLabel} accent={body.colorSoft} />
+              <Stat label="ORBITAL PERIOD" value={body.periodLabel} />
+              <Stat label="DAY LENGTH" value={body.dayLength} />
+              <Stat label="MOONS" value={body.moons} />
+              <Stat label="MEAN TEMP" value={body.tempLabel} />
+              <Stat label="ORBIT VELOCITY" value={`${body.speedKmS.toFixed(1)} km/s`} />
+              <Stat label="ORBIT NO." value={body.orderLabel ?? "—"} />
+            </>
+          )}
         </div>
 
-        {/* comparison bars */}
-        <div className="mt-4 space-y-2.5">
-          <Bar label="SIZE · VS JUPITER" display={fmtKm(body.diameterKm)} pct={sizePct} color={body.color} armed={armed} />
-          <Bar
-            label="DISTANCE · VS NEPTUNE"
-            display={body.isStar ? "0 AU" : `${body.distanceAU} AU`}
-            pct={distPct}
-            color="#6fb1ff"
-            armed={armed}
-          />
-          <Bar
-            label="ORBITAL VELOCITY · VS MERCURY"
-            display={body.isStar ? "—" : `${body.speedKmS.toFixed(1)} km/s`}
-            pct={velPct}
-            color="#ffc45e"
-            armed={armed}
-          />
+        {/* comparison meters */}
+        <div className="mt-4 space-y-3 border-t border-white/8 pt-4">
+          {isStar ? (
+            <>
+              <Meter label="STELLAR MASS · SUN = 1" value={`${(body.massSolar ?? 1).toFixed(2)}×`} frac={(body.massSolar ?? 1) / 3} color={body.color} />
+              <Meter label="LUMINOSITY · LOG SCALE" value={`${(body.luminositySolar ?? 1).toFixed(2)} L☉`} frac={Math.log10(1 + (body.luminositySolar ?? 1)) / 2} color={body.color} />
+              <Meter label="DIAMETER VS LARGEST KNOWN" value={`${(body.diameterKm / 1392700).toFixed(2)}× Sun`} frac={sizeFrac} color={body.color} />
+            </>
+          ) : (
+            <>
+              <Meter label="DIAMETER VS LARGEST KNOWN" value={`${(body.diameterKm / 139820).toFixed(2)}× Jupiter`} frac={sizeFrac} color={body.color} />
+              <Meter label="DISTANCE · √ SCALE" value={`${body.distanceAU.toFixed(2)} AU`} frac={distFrac} color={body.color} />
+              <Meter label="YEAR LENGTH · NEPTUNE = 1" value={body.periodLabel} frac={periodFrac} color={body.color} />
+            </>
+          )}
         </div>
 
         {/* field note */}
-        <div className="mt-4 border-l-2 bg-white/[0.03] px-3 py-2.5" style={{ borderColor: body.color }}>
-          <p className="text-[8px] tracking-[0.25em] text-white/40">FIELD NOTE</p>
-          <p className="mt-1 text-[11.5px] leading-relaxed text-white/75">{body.fact}</p>
+        <div className="mt-4 border-l-2 py-1 pl-3" style={{ borderColor: body.color }}>
+          <p className="text-[9px] tracking-[0.25em] text-white/40">FIELD NOTE</p>
+          <p className="mt-1.5 text-[12px] leading-relaxed text-white/75">{body.fact}</p>
         </div>
+
+        <p className="mt-4 text-[8px] tracking-[0.2em] text-white/25">
+          PERIODS VIA KEPLER III · P² = a³/M★ · TEMPS FROM STELLAR LUMINOSITY
+        </p>
       </div>
     </aside>
   );

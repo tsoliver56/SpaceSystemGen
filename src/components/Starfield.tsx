@@ -8,6 +8,7 @@ interface Star {
   tw: number;
   ph: number;
   depth: 1 | 2;
+  hue: 0 | 1 | 2;
 }
 
 interface Meteor {
@@ -19,8 +20,8 @@ interface Meteor {
   max: number;
 }
 
-/** Full-viewport canvas: two parallax star layers with twinkle + sporadic meteors. */
-export default function Starfield() {
+/** Full-viewport canvas: parallax star layers with twinkle + sporadic meteors. */
+export default function Starfield({ tint }: { tint?: string }) {
   const ref = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -33,18 +34,22 @@ export default function Starfield() {
     let h = 0;
     let raf = 0;
 
-    const stars: Star[] = Array.from({ length: 260 }, () => ({
-      x: Math.random(),
-      y: Math.random(),
-      r: Math.random() * 1.25 + 0.3,
-      a: Math.random() * 0.55 + 0.2,
-      tw: Math.random() * 1.6 + 0.4,
-      ph: Math.random() * Math.PI * 2,
-      depth: Math.random() < 0.35 ? 2 : 1,
-    }));
+    const stars: Star[] = Array.from({ length: 260 }, () => {
+      const roll = Math.random();
+      return {
+        x: Math.random(),
+        y: Math.random(),
+        r: Math.random() * 1.25 + 0.3,
+        a: Math.random() * 0.55 + 0.2,
+        tw: Math.random() * 1.6 + 0.4,
+        ph: Math.random() * Math.PI * 2,
+        depth: Math.random() < 0.35 ? 2 : 1,
+        hue: roll < 0.14 ? 2 : roll < 0.5 ? 1 : 0,
+      };
+    });
 
     let meteor: Meteor | null = null;
-    let nextMeteor = 5;
+    let nextMeteor = 4;
 
     const resize = () => {
       const dpr = window.devicePixelRatio || 1;
@@ -56,6 +61,8 @@ export default function Starfield() {
     };
     resize();
     window.addEventListener("resize", resize);
+
+    const palette = ["#dfe9ff", "#cfe2ff", tint ?? "#ffd9a0"];
 
     let last = performance.now();
     const frame = (now: number) => {
@@ -69,7 +76,7 @@ export default function Starfield() {
         const x = (s.x * w + drift) % w;
         const alpha = s.a * (0.55 + 0.45 * Math.sin(t * s.tw + s.ph));
         ctx.globalAlpha = alpha;
-        ctx.fillStyle = s.depth === 2 ? "#cfe2ff" : "#dfe9ff";
+        ctx.fillStyle = palette[s.hue];
         ctx.beginPath();
         ctx.arc(x, s.y * h, s.r * (s.depth === 2 ? 0.85 : 1), 0, 7);
         ctx.fill();
@@ -85,7 +92,7 @@ export default function Starfield() {
           life: 0,
           max: Math.random() * 1.2 + 1,
         };
-        nextMeteor = Math.random() * 9 + 6;
+        nextMeteor = Math.random() * 9 + 5;
       }
       if (meteor) {
         meteor.life += dt;
@@ -120,7 +127,7 @@ export default function Starfield() {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", resize);
     };
-  }, []);
+  }, [tint]);
 
   return (
     <canvas

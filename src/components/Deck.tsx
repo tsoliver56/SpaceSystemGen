@@ -1,9 +1,8 @@
 import {
   BASE_DAYS_PER_SEC,
-  BODIES,
   SPEED_OPTIONS,
-  type CelestialBody,
-} from "../data/bodies";
+  type Body,
+} from "../lib/generator";
 
 interface DeckProps {
   playing: boolean;
@@ -13,9 +12,12 @@ interface DeckProps {
   onSpeed: (m: number) => void;
   zoom: number;
   onZoom: (z: number) => void;
-  selected: CelestialBody | null;
-  onSelect: (b: CelestialBody) => void;
+  selected: Body | null;
+  onSelect: (b: Body) => void;
   clock: string;
+  seedLabel: string;
+  onRegenerate: () => void;
+  bodies: Body[];
 }
 
 const PlayIcon = () => (
@@ -38,6 +40,12 @@ const ResetIcon = () => (
   </svg>
 );
 
+const DiceIcon = () => (
+  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="currentColor" aria-hidden="true">
+    <path d="M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm3 3.5A1.5 1.5 0 1 0 8 9.5 1.5 1.5 0 0 0 8 6.5zm8 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm-4 4a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm-4 4a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm8 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z" />
+  </svg>
+);
+
 export default function Deck({
   playing,
   onTogglePlay,
@@ -49,10 +57,13 @@ export default function Deck({
   selected,
   onSelect,
   clock,
+  seedLabel,
+  onRegenerate,
+  bodies,
 }: DeckProps) {
   return (
     <div className="absolute inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#060a17]/92 backdrop-blur-[2px]">
-      <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5 md:px-6">
+      <div className="mx-auto flex max-w-[1560px] flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5 md:px-6">
         {/* transport */}
         <div className="flex items-center gap-2.5">
           <button
@@ -70,7 +81,7 @@ export default function Deck({
             onClick={onReset}
             aria-label="Reset simulation clock"
             title="Reset to T+0"
-            className="flex h-8 w-8 items-center justify-center rounded-full border border-white/15 text-white/50 transition-all duration-200 hover:rotate-[-40deg] hover:border-white/40 hover:text-white active:scale-90"
+            className="flex h-8 w-8 items-center justify-center rounded-full border border-white/15 text-white/50 transition-all duration-200 hover:-rotate-[40deg] hover:border-white/40 hover:text-white active:scale-90"
           >
             <ResetIcon />
           </button>
@@ -119,13 +130,26 @@ export default function Deck({
           </span>
         </div>
 
-        <p className="hidden text-[9px] tracking-[0.2em] text-white/25 xl:block">
-          SIZES &amp; DISTANCES COMPRESSED · PERIODS TRUE RATIO
-        </p>
+        {/* generate */}
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={onRegenerate}
+            title="Generate a new random system (N)"
+            className="group flex items-center gap-2 border border-solar/50 bg-solar/10 px-3 py-1.5 text-[10px] font-bold tracking-[0.2em] text-solar transition-all duration-200 hover:bg-solar/25 hover:shadow-[0_0_18px_rgba(255,196,94,0.3)] active:scale-95"
+          >
+            <span className="transition-transform duration-500 group-hover:rotate-180">
+              <DiceIcon />
+            </span>
+            NEW SYSTEM
+          </button>
+          <span className="hidden text-[9px] tabular-nums tracking-widest text-white/30 md:block">
+            {seedLabel}
+          </span>
+        </div>
 
         {/* body selector */}
         <div className="scroll-slim ml-auto flex max-w-full items-center gap-1 overflow-x-auto pb-0.5">
-          {BODIES.map((b) => {
+          {bodies.map((b) => {
             const active = selected?.id === b.id;
             return (
               <button
@@ -133,10 +157,10 @@ export default function Deck({
                 onClick={() => onSelect(b)}
                 className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] tracking-[0.15em] transition-all duration-200 ${
                   active
-                    ? "border-current bg-white/8 font-bold text-white"
+                    ? "bg-white/8 font-bold text-white"
                     : "border-white/10 text-white/50 hover:border-white/30 hover:text-white/90"
                 }`}
-                style={active ? { borderColor: b.color, color: "#f2f6ff" } : undefined}
+                style={active ? { borderColor: b.color } : undefined}
               >
                 <span
                   className="h-1.5 w-1.5 rounded-full"

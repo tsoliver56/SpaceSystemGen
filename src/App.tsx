@@ -1,13 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  BASE_DAYS_PER_SEC,
-  BODIES,
   fmtSim,
+  generateSystem,
+  hexToRgba,
   orbitRadius,
-  PLANETS,
-  SUN,
-  type CelestialBody,
-} from "./data/bodies";
+  type Body,
+} from "./lib/generator";
 import Starfield from "./components/Starfield";
 import InfoPanel from "./components/InfoPanel";
 import Deck from "./components/Deck";
@@ -19,6 +17,7 @@ interface Geom {
   h: number;
   radii: number[];
   sunR: number;
+  sunVis: number;
   ready: boolean;
 }
 
@@ -29,6 +28,7 @@ const INITIAL_GEOM: Geom = {
   h: 0,
   radii: [],
   sunR: 34,
+  sunVis: 34,
   ready: false,
 };
 
@@ -44,12 +44,16 @@ export default function App() {
   const zoomRef = useRef(1);
   const geomRef = useRef<Geom>(INITIAL_GEOM);
 
+  const [seed, setSeed] = useState(() => Math.floor(Math.random() * 0xffffff));
+  const system = useMemo(() => generateSystem(seed), [seed]);
+
   const [geom, setGeom] = useState<Geom>(INITIAL_GEOM);
   const [playing, setPlaying] = useState(true);
   const [speed, setSpeed] = useState(2);
   const [zoom, setZoom] = useState(1);
-  const [selected, setSelected] = useState<CelestialBody | null>(null);
+  const [selected, setSelected] = useState<Body | null>(null);
   const [touched, setTouched] = useState(false);
+  const [warping, setWarping] = useState(false);
   const [clock, setClock] = useState("T+0y 000d");
 
   useEffect(() => {
@@ -58,6 +62,11 @@ export default function App() {
   useEffect(() => {
     speedRef.current = speed;
   }, [speed]);
+
+  const starScale = useMemo(() => {
+    const m = system.star.massSolar ?? 1;
+    return Math.min(1.55, Math.max(0.8, 0.55 + m * 0.55));
+  }, [system]);
 
   const recompute = useCallback(() => {
     const el = stageRef.current;
@@ -72,13 +81,16 @@ export default function App() {
       w,
       h,
       sunR,
+      sunVis: sunR * starScale,
       ready: true,
-      radii: PLANETS.map((p) => orbitRadius(p.distanceAU, sunR, maxR)),
+      radii: system.planets.map((p) =>
+        orbitRadius(p.distanceAU / system.maxAU, sunR, maxR)
+      ),
     };
     geomRef.current = next;
     trailPts.current = {};
     setGeom(next);
-  }, []);
+  }, [system, starScale]);
 
   useEffect(() => {
     zoomRef.current = zoom;
@@ -110,6 +122,8 @@ export default function App() {
     let raf = 0;
     let last = performance.now();
     let clockAcc = 1;
+    const planets = system.planets;
+    const belt = system.belt;
 
     const sizeCanvas = (c: HTMLCanvasElement) => {
       const dpr = window.devicePixelRatio || 1;
@@ -120,13 +134,12 @@ export default function App() {
       return ctx;
     };
 
-    // canvases mount once geometry is ready — acquire contexts lazily
     let tCtx: CanvasRenderingContext2D | null = null;
     let bCtx: CanvasRenderingContext2D | null = null;
 
     const onResize = () => {
-      if (trailCanvasRef.current) tCtx = sizeCanvas(trailCanvasRef.current);
-      if (beltCanvasRef.current) bCtx = sizeCanvas(beltCanvasRef.current);
+      if (trailCanvasRef.current) sizeCanvas(trailCanvasRef.current);
+      if (beltCanvasRef.current) sizeCanvas(beltCanvasRef.current);
     };
     window.addEventListener("resize", onResize);
 
@@ -134,7 +147,7 @@ export default function App() {
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       if (playingRef.current) {
-        simDaysRef.current += dt * BASE_DAYS_PER_SEC * speedRef.current;
+        simDaysRef.current += dt * 12 * speedRef.current;
       }
       const g = geomRef.current;
       const sim = simDaysRef.current;
@@ -142,22 +155,29 @@ export default function App() {
       if (!tCtx && trailCanvasRef.current) tCtx = sizeCanvas(trailCanvasRef.current);
       if (!bCtx && beltCanvasRef.current) bCtx = sizeCanvas(beltCanvasRef.current);
 
-      if (g.ready && g.radii.length === PLANETS.length) {
-        // asteroid belt (between Mars and Jupiter)
-        const belt = bCtx;
-        if (belt) {
-          belt.clearRect(0, 0, g.w, g.h);
-          const inner = g.radii[3] + 12;
-          const outer = g.radii[4] - 12;
-          if (outer > inner) {
-            belt.fillStyle = "#a99c86";
-            for (const a of asteroids) {
-              const r = inner + a.t * (outer - inner);
-              const ang = a.a0 + sim * a.w;
-              belt.globalAlpha = a.al;
-              belt.fillRect(g.cx + Math.cos(ang) * r, g.cy + Math.sin(ang) * r, a.s, a.s);
+      if (g.ready && g.radii.length === planets.length) {
+        // asteroid belt between two neighbouring worlds
+        const beltCtx = bCtx;
+        if (beltCtx) {
+          beltCtx.clearRect(0, 0, g.w, g.h);
+          if (belt) {
+            const inner = g.radii[belt.innerIdx] + 12;
+            const outer = g.radii[belt.outerIdx] - 12;
+            if (outer > inner) {
+              beltCtx.fillStyle = "#a99c86";
+              for (const a of asteroids) {
+                const r = inner + a.t * (outer - inner);
+                const ang = a.a0 + sim * a.w;
+                beltCtx.globalAlpha = a.al;
+                beltCtx.fillRect(
+                  g.cx + Math.cos(ang) * r,
+                  g.cy + Math.sin(ang) * r,
+                  a.s,
+                  a.s
+                );
+              }
+              beltCtx.globalAlpha = 1;
             }
-            belt.globalAlpha = 1;
           }
         }
 
@@ -167,7 +187,7 @@ export default function App() {
           trail.clearRect(0, 0, g.w, g.h);
           trail.lineWidth = 1.4;
           trail.lineCap = "round";
-          PLANETS.forEach((p, i) => {
+          planets.forEach((p, i) => {
             const el = planetEls.current[p.id];
             if (!el) return;
             const ang =
@@ -210,11 +230,11 @@ export default function App() {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", onResize);
     };
-  }, [asteroids]);
+  }, [system, asteroids]);
 
   /* ---------------- interaction ---------------- */
 
-  const select = useCallback((b: CelestialBody) => {
+  const select = useCallback((b: Body) => {
     setSelected(b);
     setTouched(true);
   }, []);
@@ -224,6 +244,17 @@ export default function App() {
     trailPts.current = {};
     setClock(fmtSim(0));
   }, []);
+
+  const regenerate = useCallback(() => {
+    if (warping) return;
+    setWarping(true);
+    window.setTimeout(() => {
+      setSeed(Math.floor(Math.random() * 0xffffff));
+      setSelected(null);
+      trailPts.current = {};
+    }, 280);
+    window.setTimeout(() => setWarping(false), 950);
+  }, [warping]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -236,37 +267,41 @@ export default function App() {
         e.preventDefault();
         const dir = e.key === "ArrowRight" ? 1 : -1;
         setSelected((cur) => {
-          const ids = BODIES.map((b) => b.id);
+          const ids = system.bodies.map((b) => b.id);
           const idx = cur ? ids.indexOf(cur.id) : -1;
           const nextId = ids[(idx + dir + ids.length * 2) % ids.length];
           setTouched(true);
-          return BODIES.find((b) => b.id === nextId) ?? null;
+          return system.bodies.find((b) => b.id === nextId) ?? null;
         });
       } else if (e.key === "Escape") {
         setSelected(null);
+      } else if (e.key.toLowerCase() === "n") {
+        regenerate();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [system, regenerate]);
 
   const ticks = useMemo(() => Array.from({ length: 72 }, (_, i) => i * 5), []);
-  const outerR = geom.ready ? geom.radii[geom.radii.length - 1] + 16 : 0;
+  const outerR = geom.ready && geom.radii.length ? geom.radii[geom.radii.length - 1] + 16 : 0;
+
+  const nebula = useMemo(() => {
+    const c = system.star.color;
+    return `radial-gradient(1100px 700px at 12% -8%, ${hexToRgba(c, 0.26)}, transparent 62%), radial-gradient(900px 650px at 108% 112%, ${hexToRgba(c, 0.12)}, transparent 60%), radial-gradient(1500px 1000px at 50% 46%, rgba(16,26,58,0.5), transparent 78%)`;
+  }, [system]);
 
   /* ---------------- render ---------------- */
 
   return (
     <div className="relative h-dvh w-full select-none overflow-hidden bg-void font-body text-slate-100">
-      <Starfield />
+      <Starfield tint={system.star.color} />
 
-      {/* nebula wash */}
+      {/* nebula wash tinted by the star */}
       <div
         aria-hidden="true"
-        className="pointer-events-none fixed inset-0 z-0"
-        style={{
-          background:
-            "radial-gradient(1100px 700px at 12% -8%, rgba(28,78,110,0.34), transparent 62%), radial-gradient(900px 650px at 108% 112%, rgba(126,54,26,0.22), transparent 60%), radial-gradient(1500px 1000px at 50% 46%, rgba(16,26,58,0.5), transparent 78%)",
-        }}
+        className="pointer-events-none fixed inset-0 z-0 transition-all duration-1000"
+        style={{ background: nebula }}
       />
       {/* vignette */}
       <div
@@ -277,6 +312,20 @@ export default function App() {
             "radial-gradient(ellipse at center, transparent 55%, rgba(2,4,10,0.55) 100%)",
         }}
       />
+
+      {/* warp flash on regeneration */}
+      {warping && (
+        <div
+          key={seed}
+          aria-hidden="true"
+          className="pointer-events-none fixed inset-0 z-[60]"
+          style={{
+            animation: "warpflash 0.95s ease-out forwards",
+            background:
+              "radial-gradient(circle at 50% 50%, rgba(255,242,214,0.95), rgba(255,180,80,0.4) 42%, transparent 75%)",
+          }}
+        />
+      )}
 
       {/* ================= STAGE ================= */}
       <div
@@ -326,13 +375,12 @@ export default function App() {
               />
               {ticks.map((d) => {
                 const a = (d * Math.PI) / 180;
-                const r1 = outerR;
                 const r2 = outerR + (d % 30 === 0 ? 11 : 5);
                 return (
                   <line
                     key={d}
-                    x1={geom.cx + Math.cos(a) * r1}
-                    y1={geom.cy + Math.sin(a) * r1}
+                    x1={geom.cx + Math.cos(a) * outerR}
+                    y1={geom.cy + Math.sin(a) * outerR}
                     x2={geom.cx + Math.cos(a) * r2}
                     y2={geom.cy + Math.sin(a) * r2}
                     stroke="rgba(150,178,235,0.14)"
@@ -354,7 +402,7 @@ export default function App() {
                 />
               </g>
 
-              {PLANETS.map((p, i) => {
+              {system.planets.map((p, i) => {
                 const active = selected?.id === p.id;
                 return (
                   <g key={p.id}>
@@ -388,37 +436,35 @@ export default function App() {
               className="pointer-events-none absolute inset-0 z-[4] h-full w-full"
             />
 
-            {/* ---------- SUN ---------- */}
+            {/* ---------- STAR ---------- */}
             <button
-              onClick={() => select(SUN)}
-              aria-label="Sun — view details"
+              onClick={() => select(system.star)}
+              aria-label={`${system.star.name} — view details`}
               className="group absolute z-10 rounded-full outline-none"
               style={{
                 left: geom.cx,
                 top: geom.cy,
-                width: geom.sunR * 2.4,
-                height: geom.sunR * 2.4,
+                width: geom.sunVis * 2.4,
+                height: geom.sunVis * 2.4,
                 transform: "translate(-50%,-50%)",
               }}
             >
               <span
                 className="absolute left-1/2 top-1/2 rounded-full"
                 style={{
-                  width: geom.sunR * 3.6,
-                  height: geom.sunR * 3.6,
+                  width: geom.sunVis * 3.6,
+                  height: geom.sunVis * 3.6,
                   transform: "translate(-50%,-50%)",
-                  background:
-                    "repeating-conic-gradient(from 0deg, rgba(255,190,90,0.10) 0deg 4deg, transparent 4deg 12deg)",
+                  background: `repeating-conic-gradient(from 0deg, ${hexToRgba(system.star.color, 0.1)} 0deg 4deg, transparent 4deg 12deg)`,
                   animation: "spin 44s linear infinite",
                 }}
               />
               <span
                 className="absolute left-1/2 top-1/2 rounded-full"
                 style={{
-                  width: geom.sunR * 4.8,
-                  height: geom.sunR * 4.8,
-                  background:
-                    "radial-gradient(circle, rgba(255,170,60,0.30), rgba(255,140,40,0.10) 45%, transparent 70%)",
+                  width: geom.sunVis * 4.8,
+                  height: geom.sunVis * 4.8,
+                  background: `radial-gradient(circle, ${system.star.glow} 0%, transparent 70%)`,
                   filter: "blur(6px)",
                   animation: "breathe 6s ease-in-out infinite",
                 }}
@@ -426,45 +472,47 @@ export default function App() {
               <span
                 className="absolute left-1/2 top-1/2 rounded-full"
                 style={{
-                  width: geom.sunR * 2.7,
-                  height: geom.sunR * 2.7,
-                  background:
-                    "radial-gradient(circle, rgba(255,200,100,0.45), transparent 68%)",
+                  width: geom.sunVis * 2.7,
+                  height: geom.sunVis * 2.7,
+                  background: `radial-gradient(circle, ${system.star.glow}, transparent 68%)`,
                   animation: "breathe 3.8s ease-in-out infinite reverse",
                 }}
               />
               <span
                 className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-transform duration-300 group-hover:scale-105"
                 style={{
-                  width: geom.sunR * 2,
-                  height: geom.sunR * 2,
-                  background:
-                    "radial-gradient(circle at 38% 35%, #fff8dc, #ffd978 45%, #ff9d3a 80%, #f97316 100%)",
-                  boxShadow:
-                    "0 0 40px 8px rgba(255,180,70,0.5), 0 0 120px 40px rgba(255,150,50,0.22)",
+                  width: geom.sunVis * 2,
+                  height: geom.sunVis * 2,
+                  background: `radial-gradient(circle at 38% 35%, ${system.star.colorSoft}, ${system.star.color} 45%, ${system.star.colorDark} 100%)`,
+                  boxShadow: `0 0 40px 8px ${system.star.glow}, 0 0 120px 40px ${hexToRgba(system.star.color, 0.18)}`,
                 }}
               />
-              {selected?.id === "sun" && (
+              {selected?.id === system.star.id && (
                 <span
                   className="absolute left-1/2 top-1/2 rounded-full border border-dashed"
                   style={{
-                    width: geom.sunR * 2.9,
-                    height: geom.sunR * 2.9,
-                    borderColor: SUN.color,
+                    width: geom.sunVis * 2.9,
+                    height: geom.sunVis * 2.9,
+                    borderColor: system.star.color,
                     animation: "spinCenter 9s linear infinite",
                   }}
                 />
               )}
-              <span className="pointer-events-none absolute left-1/2 top-1/2 whitespace-nowrap opacity-0 transition-opacity duration-300 group-hover:opacity-100"
-                style={{ transform: `translate(${geom.sunR * 1.5 + 10}px, -50%)` }}
+              <span
+                className="pointer-events-none absolute left-1/2 top-1/2 whitespace-nowrap opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+                style={{ transform: `translate(${geom.sunVis * 1.5 + 10}px, -50%)` }}
               >
-                <span className="font-display text-[11px] font-bold tracking-[0.2em] text-solar">SOL</span>
-                <span className="ml-2 text-[9px] tracking-widest text-white/50">G2V · 1.39M KM</span>
+                <span className="font-display text-[11px] font-bold tracking-[0.2em]" style={{ color: system.star.colorSoft }}>
+                  {system.star.name.toUpperCase()}
+                </span>
+                <span className="ml-2 text-[9px] tracking-widest text-white/50">
+                  {system.star.type.toUpperCase()}
+                </span>
               </span>
             </button>
 
             {/* ---------- PLANETS ---------- */}
-            {PLANETS.map((p) => {
+            {system.planets.map((p) => {
               const hit = Math.max(36, p.sizePx + 18);
               const active = selected?.id === p.id;
               return (
@@ -519,7 +567,7 @@ export default function App() {
                         style={{
                           width: p.sizePx * 2.3,
                           height: p.sizePx * 2.3,
-                          border: "2px solid rgba(235,205,140,0.75)",
+                          border: `2px solid ${p.glow}`,
                           transform: "translate(-50%,-50%) rotate(-16deg) scaleY(0.32)",
                         }}
                       />
@@ -528,7 +576,7 @@ export default function App() {
                         style={{
                           width: p.sizePx * 1.8,
                           height: p.sizePx * 1.8,
-                          border: "1px solid rgba(235,205,140,0.45)",
+                          border: `1px solid ${p.glow}`,
                           transform: "translate(-50%,-50%) rotate(-16deg) scaleY(0.32)",
                         }}
                       />
@@ -571,7 +619,7 @@ export default function App() {
                   <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-terra" />
                 </span>
                 <span className="text-[10px] tracking-[0.35em] text-white/60">
-                  CLICK ANY PLANET TO SCAN IT
+                  CLICK ANY WORLD TO SCAN IT
                 </span>
               </div>
             )}
@@ -584,19 +632,22 @@ export default function App() {
         <div>
           <p className="flex items-center gap-2 text-[9px] tracking-[0.35em] text-white/45">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" style={{ animation: "blink 1.6s ease-in-out infinite" }} />
-            LIVE ORBITAL MECHANICS · INTERACTIVE DEMO
+            PROCEDURAL SURVEY · {system.catalog} · SEED {system.seedLabel}
           </p>
           <h1 className="font-display mt-1.5 text-[24px] font-black leading-none tracking-[0.06em] text-white md:text-[34px]">
-            SOLAR <span className="text-solar">SYSTEM</span>
+            {system.star.name.toUpperCase()}{" "}
+            <span style={{ color: system.star.color }}>SYSTEM</span>
           </h1>
           <p className="mt-1.5 text-[10px] tracking-[0.18em] text-white/35">
-            ONE STAR · EIGHT WORLDS · PERIODS IN TRUE RATIO
+            {system.star.type.toUpperCase()} · {system.planets.length} WORLDS · PERIODS VIA KEPLER III
           </p>
         </div>
 
-        <div className="hidden border-r-2 border-solar/60 pr-4 text-right sm:block">
+        <div className="hidden border-r-2 pr-4 text-right sm:block" style={{ borderColor: hexToRgba(system.star.color, 0.7) }}>
           <p className="text-[8px] tracking-[0.3em] text-white/35">MISSION CLOCK</p>
-          <p className="text-[17px] font-bold tabular-nums leading-tight text-solar">{clock}</p>
+          <p className="text-[17px] font-bold tabular-nums leading-tight" style={{ color: system.star.colorSoft }}>
+            {clock}
+          </p>
           <p className="mt-1 text-[9px] tabular-nums tracking-[0.15em] text-white/45">
             RATE {speed}× · {playing ? "RUNNING" : "HOLD"}
           </p>
@@ -617,10 +668,18 @@ export default function App() {
         selected={selected}
         onSelect={select}
         clock={clock}
+        seedLabel={system.seedLabel}
+        onRegenerate={regenerate}
+        bodies={system.bodies}
       />
 
       {selected && (
-        <InfoPanel body={selected} onClose={() => setSelected(null)} simDaysRef={simDaysRef} />
+        <InfoPanel
+          key={`${seed}-${selected.id}`}
+          body={selected}
+          onClose={() => setSelected(null)}
+          simDaysRef={simDaysRef}
+        />
       )}
 
       {/* film grain */}
