@@ -32,10 +32,15 @@ export interface Body {
   /* star extras */
   massSolar?: number;
   luminositySolar?: number;
+  radiusSolar?: number;
   ageLabel?: string;
   worlds?: number;
   /* planet extras */
   orderLabel?: string;
+  densityGcc?: number;
+  /* shared — Roche limit (AU) and how many Roche radii the orbit sits at */
+  rocheAU?: number;
+  rocheMargin?: number;
 }
 
 export interface StarSystem {
@@ -47,10 +52,30 @@ export interface StarSystem {
   bodies: Body[];
   belt: { innerIdx: number; outerIdx: number } | null;
   maxAU: number;
+  /** system-wide fluid Roche limit (AU) — no orbit may cross inside it */
+  rocheAU: number;
 }
 
 export const BASE_DAYS_PER_SEC = 12;
 export const SPEED_OPTIONS = [0.5, 1, 2, 5, 10, 50];
+
+/** 1 solar radius, in AU */
+export const SUN_RADIUS_AU = 0.00465047;
+/** fluid-body Roche coefficient (appropriate for rubble-pile & gaseous worlds) */
+const ROCHE_K = 2.44;
+/** fluffiest plausible planet bulk density (g/cm³) — used for the system-wide floor */
+const MIN_PLANET_DENSITY = 0.8;
+/** mean bulk densities (g/cm³) per world archetype */
+const DENSITIES: Record<string, number> = {
+  "Lava World": 5.2,
+  "Rocky World": 4.1,
+  "Desert World": 4.4,
+  "Ocean World": 2.9,
+  "Super-Earth": 5.6,
+  "Ice World": 1.8,
+  "Gas Giant": 1.1,
+  "Ice Giant": 1.6,
+};
 
 export function orbitRadius(frac: number, sunR: number, maxR: number): number {
   const inner = sunR + maxR * 0.16;
@@ -239,6 +264,12 @@ export function generateSystem(seed: number): StarSystem {
 
   const massSolar = rand(spec.mass[0], spec.mass[1]);
   const luminositySolar = Math.pow(massSolar, 3.5);
+  const radiusSolar = Math.pow(massSolar, 0.85); // main-sequence mass–radius relation
+  const rhoStar = (1.408 * massSolar) / Math.pow(radiusSolar, 3); // mean density, g/cm³
+  /* Fluid Roche limit d = 2.44 · R★ · (ρ★/ρp)^⅓ for the fluffiest plausible
+     world — inside this radius tides shred planets faster than they accrete. */
+  const rocheFluid =
+    ROCHE_K * radiusSolar * SUN_RADIUS_AU * Math.cbrt(rhoStar / MIN_PLANET_DENSITY);
   const tempK = int(spec.tempK[0], spec.tempK[1]);
   const catalog = `${pick(CATALOGS)}-${int(100, 9899)}`;
   const genName =
@@ -254,7 +285,7 @@ export function generateSystem(seed: number): StarSystem {
     colorSoft: spec.pal.soft,
     colorDark: spec.pal.dark,
     glow: spec.pal.glow,
-    diameterKm: Math.round(1392700 * Math.pow(massSolar, 0.85)),
+    diameterKm: Math.round(1392700 * radiusSolar),
     distanceAU: 0,
     distanceLabel: "System barycenter",
     periodDays: 0,
@@ -269,6 +300,8 @@ export function generateSystem(seed: number): StarSystem {
     isStar: true,
     massSolar,
     luminositySolar,
+    radiusSolar,
+    rocheAU: rocheFluid,
     ageLabel: `≈${rand(0.2, 10.5).toFixed(1)} Gyr`,
   };
 
@@ -276,9 +309,11 @@ export function generateSystem(seed: number): StarSystem {
   const n = int(3, 9);
   const snowLine = 2.7 * Math.sqrt(luminositySolar);
   const planets: Body[] = [];
-  /* floor the innermost orbit so its period stays >= ~20 days (readable motion) */
+  /* floor the innermost orbit: readable motion AND ≥ 3× outside the Roche
+     limit, where no self-gravitating world could survive the star's tides */
   const aMin = Math.cbrt(0.003 * massSolar);
-  let aNext = Math.max(rand(0.12, 0.38) * Math.sqrt(luminositySolar), aMin);
+  const aFloor = Math.max(aMin, 3 * rocheFluid);
+  let aNext = Math.max(rand(0.12, 0.38) * Math.sqrt(luminositySolar), aFloor);
 
   /* lay out all semi-major axes first, then compress wide systems proportionally */
   const orbits: number[] = [];
@@ -287,7 +322,9 @@ export function generateSystem(seed: number): StarSystem {
     aNext *= rand(1.35, 1.9);
   }
   const rawMax = orbits[n - 1];
-  const scale = rawMax > 90 ? 90 / rawMax : 1;
+  let scale = rawMax > 90 ? 90 / rawMax : 1;
+  /* compression may never drag the inner world back inside the Roche-safe floor */
+  scale = Math.max(scale, aFloor / orbits[0]);
 
   for (let i = 0; i < n; i++) {
     const a = orbits[i] * scale;
@@ -314,6 +351,13 @@ export function generateSystem(seed: number): StarSystem {
 
     const periodDays = 365.25 * Math.sqrt((a * a * a) / massSolar);
     const speedKmS = 29.78 * Math.sqrt(massSolar / a);
+
+    /* this world's own Roche limit from its bulk density, and how far
+       outside it the orbit sits (must always exceed the 3× safety factor) */
+    const densityGcc = DENSITIES[type];
+    const rocheAU =
+      ROCHE_K * radiusSolar * SUN_RADIUS_AU * Math.cbrt(rhoStar / densityGcc);
+    const rocheMargin = a / rocheAU;
 
     let teq = (279 * Math.pow(luminositySolar, 0.25)) / Math.sqrt(a);
     if (["Ocean World", "Super-Earth", "Rocky World"].includes(type)) teq *= rand(1.0, 1.35);
@@ -367,6 +411,9 @@ export function generateSystem(seed: number): StarSystem {
       bands: giant || (type === "Ice World" && chance(0.4)),
       rings: (giant && chance(0.38)) || (type === "Ice World" && chance(0.1)),
       orderLabel: `${i + 1} of ${n}`,
+      densityGcc,
+      rocheAU,
+      rocheMargin,
     });
   }
 
@@ -390,5 +437,6 @@ export function generateSystem(seed: number): StarSystem {
     bodies: [star, ...planets],
     belt,
     maxAU,
+    rocheAU: rocheFluid,
   };
 }

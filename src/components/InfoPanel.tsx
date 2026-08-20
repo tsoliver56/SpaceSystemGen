@@ -1,5 +1,5 @@
 import { useEffect, useState, type RefObject } from "react";
-import { fmtSim, type Body } from "../lib/generator";
+import { fmtSim, SUN_RADIUS_AU, type Body } from "../lib/generator";
 
 interface InfoPanelProps {
   body: Body;
@@ -138,7 +138,20 @@ export default function InfoPanel({ body, onClose, simDaysRef }: InfoPanelProps)
               <Stat label="LUMINOSITY" value={`${(body.luminositySolar ?? 1).toFixed(2)} L☉`} />
               <Stat label="SURFACE TEMP" value={body.tempLabel} />
               <Stat label="ROTATION" value={body.dayLength} />
+              <Stat label="STELLAR RADIUS" value={`${(body.radiusSolar ?? 1).toFixed(2)} R☉`} />
               <Stat label="AGE" value={body.ageLabel ?? "—"} />
+              <Stat
+                label="ROCHE LIMIT"
+                value={
+                  body.rocheAU != null
+                    ? `${body.rocheAU.toFixed(4)} AU · ${(
+                        body.rocheAU /
+                        ((body.radiusSolar ?? 1) * SUN_RADIUS_AU)
+                      ).toFixed(1)} R★`
+                    : "—"
+                }
+                accent="#ff9d8a"
+              />
               <Stat label="WORLDS" value={String(body.worlds ?? 0)} accent={body.colorSoft} />
               <Stat label="CLASS" value={body.type.split(" ")[0]} />
             </>
@@ -150,6 +163,12 @@ export default function InfoPanel({ body, onClose, simDaysRef }: InfoPanelProps)
               <Stat label="MOONS" value={body.moons} />
               <Stat label="MEAN TEMP" value={body.tempLabel} />
               <Stat label="ORBIT VELOCITY" value={`${body.speedKmS.toFixed(1)} km/s`} />
+              <Stat label="MEAN DENSITY" value={`${(body.densityGcc ?? 0).toFixed(1)} g/cm³`} />
+              <Stat
+                label="ROCHE MARGIN"
+                value={`×${Math.round(body.rocheMargin ?? 0)} the limit`}
+                accent="#9be8a8"
+              />
               <Stat label="ORBIT NO." value={body.orderLabel ?? "—"} />
             </>
           )}
@@ -168,6 +187,12 @@ export default function InfoPanel({ body, onClose, simDaysRef }: InfoPanelProps)
               <Meter label="DIAMETER VS LARGEST KNOWN" value={`${(body.diameterKm / 139820).toFixed(2)}× Jupiter`} frac={sizeFrac} color={body.color} />
               <Meter label="DISTANCE · √ SCALE" value={`${body.distanceAU.toFixed(2)} AU`} frac={distFrac} color={body.color} />
               <Meter label="YEAR LENGTH · NEPTUNE = 1" value={body.periodLabel} frac={periodFrac} color={body.color} />
+              <Meter
+                label="TIDAL SAFETY · DISRUPTION = 1"
+                value={`×${Math.round(body.rocheMargin ?? 0)}`}
+                frac={Math.min(1, Math.log10(Math.max(1.5, body.rocheMargin ?? 1)) / 2.6)}
+                color="#ff8a7a"
+              />
             </>
           )}
         </div>
@@ -178,8 +203,9 @@ export default function InfoPanel({ body, onClose, simDaysRef }: InfoPanelProps)
           <p className="mt-1.5 text-[12px] leading-relaxed text-white/75">{body.fact}</p>
         </div>
 
-        <p className="mt-4 text-[8px] tracking-[0.2em] text-white/25">
-          PERIODS VIA KEPLER III · P² = a³/M★ · TEMPS FROM STELLAR LUMINOSITY
+        <p className="mt-4 text-[8px] leading-relaxed tracking-[0.2em] text-white/25">
+          PERIODS VIA KEPLER III · P² = a³/M★ · TEMPS FROM L★ · ALL ORBITS CLEAR
+          THE ROCHE LIMIT d = 2.44·R★·(ρ★/ρp)^⅓ BY ≥3×
         </p>
       </div>
     </aside>

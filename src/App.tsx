@@ -18,6 +18,7 @@ interface Geom {
   radii: number[];
   sunR: number;
   sunVis: number;
+  rocheR: number;
   ready: boolean;
 }
 
@@ -29,6 +30,7 @@ const INITIAL_GEOM: Geom = {
   radii: [],
   sunR: 34,
   sunVis: 34,
+  rocheR: 0,
   ready: false,
 };
 
@@ -86,7 +88,15 @@ export default function App() {
       radii: system.planets.map((p) =>
         orbitRadius(p.distanceAU / system.maxAU, sunR, maxR)
       ),
+      rocheR: 0,
     };
+    /* Roche zone marker: sits between the star's limb and the first (always
+       Roche-safe) orbit, so the forbidden region is visible on the chart */
+    const firstOrbit = next.radii[0] ?? maxR * 0.5;
+    next.rocheR = Math.min(
+      Math.max(next.sunVis + 8, next.sunVis + (firstOrbit - next.sunVis) * 0.45),
+      Math.max(next.sunVis + 8, firstOrbit - 12)
+    );
     geomRef.current = next;
     trailPts.current = {};
     setGeom(next);
@@ -401,6 +411,38 @@ export default function App() {
                   stroke="rgba(120,190,255,0.09)"
                 />
               </g>
+
+              {/* Roche disruption zone — tides shred worlds inside this ring */}
+              {geom.rocheR > 0 && (
+                <g>
+                  <circle
+                    cx={geom.cx}
+                    cy={geom.cy}
+                    r={geom.rocheR}
+                    fill="rgba(255,72,60,0.05)"
+                  />
+                  <circle
+                    cx={geom.cx}
+                    cy={geom.cy}
+                    r={geom.rocheR}
+                    fill="none"
+                    stroke="rgba(255,100,88,0.45)"
+                    strokeWidth={1}
+                    strokeDasharray="3 7"
+                    className="dash-drift"
+                  />
+                  <text
+                    x={geom.cx + geom.rocheR * 0.71 + 5}
+                    y={geom.cy + geom.rocheR * 0.71 + 11}
+                    fill="rgba(255,132,120,0.62)"
+                    fontSize={7.5}
+                    letterSpacing={2.4}
+                    style={{ fontFamily: "var(--font-body)" }}
+                  >
+                    ROCHE
+                  </text>
+                </g>
+              )}
 
               {system.planets.map((p, i) => {
                 const active = selected?.id === p.id;
