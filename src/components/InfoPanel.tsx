@@ -1,4 +1,10 @@
-import { useEffect, useState, type ReactNode, type RefObject } from "react";
+import {
+  useEffect,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { fmtSim, GAS_DEFS, SUN_RADIUS_AU, type Body } from "../lib/generator";
 import { nuFromE, solveKepler } from "../lib/kepler";
 import { fmtGasPct, fmtKm, fmtMassKg, fmtPressure, sci } from "../lib/format";
@@ -317,11 +323,18 @@ export default function InfoPanel({ body, onClose, simDaysRef }: InfoPanelProps)
 
   return (
     <aside
-      className="absolute inset-x-0 bottom-[60px] z-30 max-h-[52dvh] overflow-y-auto scroll-slim border-t bg-[#070c18]/94 backdrop-blur-sm md:inset-y-0 md:bottom-auto md:right-0 md:left-auto md:max-h-none md:w-[388px] md:border-l md:border-t-0"
-      style={{ animation: "sheetin .45s cubic-bezier(.2,.8,.25,1) both" }}
+      className="panel-scroll absolute inset-x-0 bottom-[60px] z-30 max-h-[52dvh] overflow-y-scroll overscroll-y-contain border-t bg-[#070c18]/94 backdrop-blur-sm md:inset-y-0 md:bottom-auto md:right-0 md:left-auto md:max-h-none md:w-[392px] md:border-l md:border-t-0"
+      style={
+        {
+          animation: "sheetin .45s cubic-bezier(.2,.8,.25,1) both",
+          "--panel-accent": body.colorSoft,
+        } as CSSProperties
+      }
       aria-label={`Details for ${body.name}`}
     >
-      <div className="px-5 pb-7 pt-5 md:px-6" style={{ animation: "rise .5s .08s cubic-bezier(.2,.8,.25,1) both" }}>
+      {/* pinned edge fades — hint at scrollable depth above and below */}
+      <div className="pointer-events-none sticky top-0 z-20 -mb-7 h-7 bg-gradient-to-b from-[#070c18] via-[#070c18]/80 to-transparent" />
+      <div className="px-5 pb-20 pt-5 md:px-6 md:pb-24" style={{ animation: "rise .5s .08s cubic-bezier(.2,.8,.25,1) both" }}>
         {/* header */}
         <div className="flex items-start gap-4">
           <div
@@ -499,6 +512,7 @@ export default function InfoPanel({ body, onClose, simDaysRef }: InfoPanelProps)
           ALL PERIAPSES CLEAR THE ROCHE LIMIT d = 2.44·R★·(ρ★/ρp)^⅓ BY ≥3×
         </p>
       </div>
+      <div className="pointer-events-none sticky bottom-0 z-20 -mt-7 h-7 bg-gradient-to-t from-[#070c18] via-[#070c18]/80 to-transparent" />
     </aside>
   );
 }
