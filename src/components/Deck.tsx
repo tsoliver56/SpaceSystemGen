@@ -1,8 +1,4 @@
-import {
-  BASE_DAYS_PER_SEC,
-  SPEED_OPTIONS,
-  type Body,
-} from "../lib/generator";
+import { SPEED_OPTIONS, type Body } from "../lib/generator";
 
 interface DeckProps {
   playing: boolean;
@@ -109,7 +105,7 @@ export default function Deck({
             ))}
           </div>
           <span className="hidden text-[9px] tabular-nums tracking-widest text-white/30 lg:block">
-            {(BASE_DAYS_PER_SEC * speed).toFixed(0)} d/s
+            {speed} d/s
           </span>
         </div>
 

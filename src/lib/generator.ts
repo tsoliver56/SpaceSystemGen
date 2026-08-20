@@ -93,7 +93,7 @@ export interface StarSystem {
   rocheAU: number;
 }
 
-export const BASE_DAYS_PER_SEC = 12;
+/* the rate multiplier IS the rate: 1× = 1 simulated day per real second */
 export const SPEED_OPTIONS = [0.5, 1, 2, 5, 10, 50];
 
 /** 1 solar radius, in AU */

@@ -229,7 +229,7 @@ export default function App() {
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       if (playingRef.current) {
-        simDaysRef.current += dt * 12 * speedRef.current;
+        simDaysRef.current += dt * speedRef.current; // 1× = 1 day/s
       }
       const g = geomRef.current;
       const sim = simDaysRef.current;
@@ -268,7 +268,7 @@ export default function App() {
         const spinEl = starSpinRef.current;
         if (spinEl) {
           const rotH = system.star.rotationHours ?? 120;
-          const visDays = (10 + rotH * 0.12) / 12;
+          const visDays = 10 + rotH * 0.12;
           spinEl.style.transform = `rotate(${(((sim / visDays) * 360) % 360).toFixed(2)}deg)`;
         }
 
@@ -313,7 +313,7 @@ export default function App() {
             if (playingRef.current) {
               const pts = (trailPts.current[p.id] ||= []);
               pts.push({ x, y });
-              if (pts.length > 60) pts.shift();
+              if (pts.length > 110) pts.shift();
             }
             const pts = trailPts.current[p.id];
             if (pts && pts.length > 1) {
@@ -916,7 +916,11 @@ export default function App() {
         className="pointer-events-none absolute inset-x-0 bottom-0 z-0 invisible border-t border-transparent"
       >
         <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5 md:px-6">
-          <span className="h-10" />
+          <div className="flex items-center gap-2.5">
+            <span className="h-10 w-10" />
+            <span className="h-8 w-8" />
+            <span className="hidden text-[11px] tracking-wider sm:block">T+99999y 364d</span>
+          </div>
           <div className="flex items-center gap-2">
             <span className="text-[9px] tracking-[0.25em]">RATE</span>
             <div className="flex overflow-hidden rounded border border-white/12">
@@ -924,7 +928,7 @@ export default function App() {
                 <span key={m} className="px-2.5 py-1 text-[11px] tabular-nums">{m}×</span>
               ))}
             </div>
-            <span className="hidden text-[9px] tabular-nums tracking-widest lg:block">240 d/s</span>
+            <span className="hidden text-[9px] tabular-nums tracking-widest lg:block">{speed} d/s</span>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[9px] tracking-[0.25em]">ZOOM</span>
