@@ -3,9 +3,16 @@ import {
   fmtSim,
   generateSystem,
   hexToRgba,
-  orbitRadius,
   type Body,
 } from "./lib/generator";
+import {
+  auToPx,
+  frameOf,
+  nodePoints,
+  orbitPathD,
+  orbitPointAtE,
+  orbitPointFromM,
+} from "./lib/kepler";
 import Starfield from "./components/Starfield";
 import InfoPanel from "./components/InfoPanel";
 import Deck from "./components/Deck";
@@ -15,9 +22,12 @@ interface Geom {
   cy: number;
   w: number;
   h: number;
-  radii: number[];
+  radii: number[]; // semi-major axes, px
   sunR: number;
   sunVis: number;
+  maxR: number;
+  /** AU value that maps to maxR — maxAU plus apoapsis headroom */
+  scaleAU: number;
   rocheR: number;
   ready: boolean;
 }
@@ -30,6 +40,8 @@ const INITIAL_GEOM: Geom = {
   radii: [],
   sunR: 34,
   sunVis: 34,
+  maxR: 400,
+  scaleAU: 33.8,
   rocheR: 0,
   ready: false,
 };
@@ -77,6 +89,11 @@ export default function App() {
     const h = el.clientHeight;
     const maxR = Math.max(110, Math.min(w, h) / 2 - 22) * zoomRef.current;
     const sunR = Math.min(44, Math.max(24, maxR * 0.125));
+    /* reserve 30% headroom beyond the outermost semi-major axis so the
+       most eccentric apoapsis never leaves the stage */
+    const scaleAU = system.maxAU * 1.3;
+    const toPx = (au: number) =>
+      auToPx(au, sunR * starScale, maxR, scaleAU);
     const next: Geom = {
       cx: w / 2,
       cy: h / 2,
@@ -84,18 +101,19 @@ export default function App() {
       h,
       sunR,
       sunVis: sunR * starScale,
+      maxR,
+      scaleAU,
       ready: true,
-      radii: system.planets.map((p) =>
-        orbitRadius(p.distanceAU / system.maxAU, sunR, maxR)
-      ),
+      radii: system.planets.map((p) => toPx(p.distanceAU)),
       rocheR: 0,
     };
-    /* Roche zone marker: sits between the star's limb and the first (always
-       Roche-safe) orbit, so the forbidden region is visible on the chart */
-    const firstOrbit = next.radii[0] ?? maxR * 0.5;
+    /* Roche zone marker: drawn inside the innermost world's *periapsis*
+       (its closest possible approach), which generation keeps ≥ 3× beyond
+       the fluid Roche limit — so the forbidden disc is always clear. */
+    const firstPeri = toPx(system.planets[0]?.periapsisAU ?? system.maxAU * 0.1);
     next.rocheR = Math.min(
-      Math.max(next.sunVis + 8, next.sunVis + (firstOrbit - next.sunVis) * 0.45),
-      Math.max(next.sunVis + 8, firstOrbit - 12)
+      Math.max(next.sunVis + 8, next.sunVis + (firstPeri - next.sunVis) * 0.5),
+      Math.max(next.sunVis + 8, firstPeri - 10)
     );
     geomRef.current = next;
     trailPts.current = {};
@@ -126,6 +144,27 @@ export default function App() {
       })),
     []
   );
+
+  /* static orbit geometry: projected ellipse path + apsides + node markers */
+  const orbitArt = useMemo(() => {
+    if (!geom.ready) return [];
+    const toPx = (au: number) =>
+      auToPx(au, geom.sunVis, geom.maxR, geom.scaleAU);
+    return system.planets.map((p) => {
+      const e = p.eccentricity ?? 0;
+      const fr = frameOf(p);
+      return {
+        id: p.id,
+        d: orbitPathD(p.distanceAU, e, fr, toPx, geom.cx, geom.cy),
+        peri: orbitPointAtE(p.distanceAU, e, fr, 0, toPx),
+        apo: orbitPointAtE(p.distanceAU, e, fr, Math.PI, toPx),
+        nodes:
+          (p.inclinationDeg ?? 0) > 0.3
+            ? nodePoints(p.distanceAU, e, fr, toPx)
+            : null,
+      };
+    });
+  }, [geom, system]);
 
   /* ---------------- main simulation loop ---------------- */
   useEffect(() => {
@@ -197,14 +236,28 @@ export default function App() {
           trail.clearRect(0, 0, g.w, g.h);
           trail.lineWidth = 1.4;
           trail.lineCap = "round";
-          planets.forEach((p, i) => {
+          planets.forEach((p) => {
             const el = planetEls.current[p.id];
             if (!el) return;
-            const ang =
-              (p.startAngle * Math.PI) / 180 - (2 * Math.PI * sim) / p.periodDays;
-            const x = g.cx + g.radii[i] * Math.cos(ang);
-            const y = g.cy + g.radii[i] * Math.sin(ang);
-            el.style.transform = `translate3d(${x}px,${y}px,0) translate(-50%,-50%)`;
+            /* Keplerian motion: M(t) → E → ν → r, projected through the
+               (i, Ω, ω) frame — worlds visibly race through periapsis */
+            const M =
+              ((p.startAngle * Math.PI) / 180 +
+                (2 * Math.PI * sim) / p.periodDays) %
+              (2 * Math.PI);
+            const toPx = (au: number) =>
+              auToPx(au, g.sunVis, g.maxR, system.maxAU);
+            const pt = orbitPointFromM(
+              p.distanceAU,
+              p.eccentricity ?? 0,
+              frameOf(p),
+              M,
+              toPx
+            );
+            const x = g.cx + pt.x;
+            const y = g.cy + pt.y;
+            const s = Math.max(0.86, Math.min(1.14, 1 + pt.depth / (g.maxR * 2)));
+            el.style.transform = `translate3d(${x}px,${y}px,0) translate(-50%,-50%) scale(${s.toFixed(3)})`;
 
             if (playingRef.current) {
               const pts = (trailPts.current[p.id] ||= []);
@@ -445,23 +498,82 @@ export default function App() {
               )}
 
               {system.planets.map((p, i) => {
+                const oa = orbitArt[i];
+                if (!oa) return null;
                 const active = selected?.id === p.id;
+                const px = (pt: { x: number; y: number }) => ({
+                  x: geom.cx + pt.x,
+                  y: geom.cy + pt.y,
+                });
+                const peri = px(oa.peri);
+                const apo = px(oa.apo);
                 return (
                   <g key={p.id}>
-                    <circle
-                      cx={geom.cx}
-                      cy={geom.cy}
-                      r={geom.radii[i]}
+                    {/* projected ellipse — shape set by a, e, i, Ω, ω */}
+                    <path
+                      d={oa.d}
                       fill="none"
-                      stroke={active ? p.color : "rgba(150,178,235,0.16)"}
+                      stroke={active ? p.color : "rgba(150,178,235,0.17)"}
                       strokeOpacity={active ? 0.85 : 1}
-                      strokeWidth={active ? 1.4 : 1}
+                      strokeWidth={active ? 1.5 : 1}
                       style={{ transition: "stroke .4s, stroke-width .4s" }}
                     />
+                    {/* periapsis (filled) & apoapsis (hollow) */}
                     <circle
-                      cx={geom.cx}
-                      cy={geom.cy}
-                      r={geom.radii[i]}
+                      cx={peri.x}
+                      cy={peri.y}
+                      r={2.1}
+                      fill={p.color}
+                      opacity={active ? 0.95 : 0.4}
+                    />
+                    <circle
+                      cx={apo.x}
+                      cy={apo.y}
+                      r={2.1}
+                      fill="none"
+                      stroke="rgba(230,240,255,0.5)"
+                      strokeWidth={1}
+                      opacity={active ? 0.9 : 0.32}
+                    />
+                    {/* line of nodes — where the orbit pierces the reference plane */}
+                    {oa.nodes && (
+                      <>
+                        {[oa.nodes.asc, oa.nodes.desc].map((nd, k) => {
+                          const q = px(nd);
+                          return (
+                            <rect
+                              key={k}
+                              x={q.x - 2.3}
+                              y={q.y - 2.3}
+                              width={4.6}
+                              height={4.6}
+                              transform={`rotate(45 ${q.x} ${q.y})`}
+                              fill="none"
+                              stroke="rgba(190,210,255,0.55)"
+                              strokeWidth={0.9}
+                              opacity={active ? 0.95 : 0.28}
+                            />
+                          );
+                        })}
+                      </>
+                    )}
+                    {active && (
+                      <g
+                        fontSize={8}
+                        letterSpacing={1.2}
+                        style={{ fontFamily: "var(--font-body)" }}
+                      >
+                        <text x={peri.x + 6} y={peri.y + 3} fill={p.color}>
+                          q {(p.periapsisAU ?? 0).toFixed(2)}
+                        </text>
+                        <text x={apo.x + 6} y={apo.y + 3} fill="rgba(230,240,255,0.72)">
+                          Q {(p.apoapsisAU ?? 0).toFixed(2)}
+                        </text>
+                      </g>
+                    )}
+                    {/* fat invisible stroke = click target */}
+                    <path
+                      d={oa.d}
                       fill="none"
                       stroke="transparent"
                       strokeWidth={16}
@@ -681,7 +793,7 @@ export default function App() {
             <span style={{ color: system.star.color }}>SYSTEM</span>
           </h1>
           <p className="mt-1.5 text-[10px] tracking-[0.18em] text-white/35">
-            {system.star.type.toUpperCase()} · {system.planets.length} WORLDS · PERIODS VIA KEPLER III
+            {system.star.type.toUpperCase()} · {system.planets.length} WORLDS · FULL KEPLERIAN ELEMENTS
           </p>
         </div>
 

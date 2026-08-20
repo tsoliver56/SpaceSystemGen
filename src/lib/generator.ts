@@ -1,7 +1,9 @@
 /* ------------------------------------------------------------------ */
 /*  Procedural exoplanetary system generator                           */
 /*  Physics: Kepler's third law (P² = a³/M), equilibrium temperature,  */
-/*  mass–luminosity relation L ≈ M^3.5, orbital velocity v = √(GM/a).  */
+/*  mass–luminosity relation L ≈ M^3.5, orbital velocity v = √(GM/a),  */
+/*  fluid Roche limit d = 2.44·R★·(ρ★/ρp)^⅓, and full Keplerian        */
+/*  elements (a, e, i, Ω, ω, M) per world.                             */
 /* ------------------------------------------------------------------ */
 
 export interface Body {
@@ -41,6 +43,13 @@ export interface Body {
   /* shared — Roche limit (AU) and how many Roche radii the orbit sits at */
   rocheAU?: number;
   rocheMargin?: number;
+  /* keplerian elements */
+  eccentricity?: number; // e
+  inclinationDeg?: number; // i — tilt vs. the system reference plane
+  lonAscNodeDeg?: number; // Ω — longitude of ascending node
+  argPeriDeg?: number; // ω — argument of perihelion
+  periapsisAU?: number; // q = a(1−e)
+  apoapsisAU?: number; // Q = a(1+e)
 }
 
 export interface StarSystem {
@@ -76,11 +85,6 @@ const DENSITIES: Record<string, number> = {
   "Gas Giant": 1.1,
   "Ice Giant": 1.6,
 };
-
-export function orbitRadius(frac: number, sunR: number, maxR: number): number {
-  const inner = sunR + maxR * 0.16;
-  return inner + (maxR - inner) * Math.pow(Math.min(1, Math.max(0.02, frac)), 0.42);
-}
 
 export function fmtSim(days: number): string {
   const y = Math.floor(days / 365.25);
@@ -321,8 +325,11 @@ export function generateSystem(seed: number): StarSystem {
     orbits.push(aNext);
     aNext *= rand(1.35, 1.9);
   }
+  /* compact systems, like the real Kepler/TRAPPIST population: the outer
+     edge sits ~3 snow lines out, capped so the chart stays legible */
+  const outerCap = Math.min(26, Math.max(4, 3 * snowLine));
   const rawMax = orbits[n - 1];
-  let scale = rawMax > 90 ? 90 / rawMax : 1;
+  let scale = rawMax > outerCap ? outerCap / rawMax : 1;
   /* compression may never drag the inner world back inside the Roche-safe floor */
   scale = Math.max(scale, aFloor / orbits[0]);
 
@@ -358,6 +365,18 @@ export function generateSystem(seed: number): StarSystem {
     const rocheAU =
       ROCHE_K * radiusSolar * SUN_RADIUS_AU * Math.cbrt(rhoStar / densityGcc);
     const rocheMargin = a / rocheAU;
+
+    /* Keplerian elements. Eccentricity is biased low (most real planets are
+       near-circular) and hard-clamped so the periapsis q = a(1−e) never
+       approaches the Roche limit; inclinations are modest and mutual,
+       Ω and ω are free orientations. */
+    let ecc = 0.02 + 0.28 * Math.pow(rnd(), 1.5);
+    ecc = Math.min(ecc, Math.max(0, 1 - (3 * rocheFluid) / a - 1e-4));
+    const incl = 18 * Math.pow(rnd(), 2);
+    const lonAsc = rnd() * 360;
+    const argPeri = rnd() * 360;
+    const peri = a * (1 - ecc);
+    const apo = a * (1 + ecc);
 
     let teq = (279 * Math.pow(luminositySolar, 0.25)) / Math.sqrt(a);
     if (["Ocean World", "Super-Earth", "Rocky World"].includes(type)) teq *= rand(1.0, 1.35);
@@ -414,6 +433,12 @@ export function generateSystem(seed: number): StarSystem {
       densityGcc,
       rocheAU,
       rocheMargin,
+      eccentricity: Number(ecc.toFixed(4)),
+      inclinationDeg: Number(incl.toFixed(2)),
+      lonAscNodeDeg: Number(lonAsc.toFixed(1)),
+      argPeriDeg: Number(argPeri.toFixed(1)),
+      periapsisAU: Number(peri.toFixed(4)),
+      apoapsisAU: Number(apo.toFixed(4)),
     });
   }
 
