@@ -13,6 +13,8 @@ interface InfoPanelProps {
   body: Body;
   onClose: () => void;
   simDaysRef: RefObject<number>;
+  /** live height of the control deck — the panel never tucks under it */
+  bottomOffset: number;
 }
 
 const M_EARTH_KG = 5.972e24;
@@ -292,7 +294,7 @@ function TempRow({ body }: { body: Body }) {
   );
 }
 
-export default function InfoPanel({ body, onClose, simDaysRef }: InfoPanelProps) {
+export default function InfoPanel({ body, onClose, simDaysRef, bottomOffset }: InfoPanelProps) {
   const [eph, setEph] = useState({ M: "0.0", nu: "0.0", rAU: "0.00", pct: "0.0", clock: fmtSim(0) });
 
   useEffect(() => {
@@ -323,10 +325,11 @@ export default function InfoPanel({ body, onClose, simDaysRef }: InfoPanelProps)
 
   return (
     <aside
-      className="panel-scroll absolute inset-x-0 bottom-[60px] z-30 max-h-[52dvh] overflow-y-scroll overscroll-y-contain border-t bg-[#070c18]/94 backdrop-blur-sm md:inset-y-0 md:bottom-auto md:right-0 md:left-auto md:max-h-none md:w-[392px] md:border-l md:border-t-0"
+      className="panel-scroll absolute inset-x-0 z-30 max-h-[52dvh] overflow-y-scroll overscroll-y-contain border-t bg-[#070c18]/94 backdrop-blur-sm md:top-0 md:right-0 md:left-auto md:max-h-none md:w-[392px] md:border-l md:border-t-0"
       style={
         {
           animation: "sheetin .45s cubic-bezier(.2,.8,.25,1) both",
+          bottom: bottomOffset,
           "--panel-accent": body.colorSoft,
         } as CSSProperties
       }

@@ -71,6 +71,20 @@ export default function App() {
   const [touched, setTouched] = useState(false);
   const [warping, setWarping] = useState(false);
   const [clock, setClock] = useState("T+0y 000d");
+  const deckRef = useRef<HTMLDivElement>(null);
+  const [deckH, setDeckH] = useState(64);
+
+  /* the control deck wraps taller on narrow screens — the info panel's
+     bottom edge must always clear it */
+  useEffect(() => {
+    const el = deckRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() =>
+      setDeckH(Math.ceil(el.getBoundingClientRect().height))
+    );
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     playingRef.current = playing;
@@ -894,6 +908,47 @@ export default function App() {
         </div>
       </header>
 
+      {/* invisible twin of the control deck: mirrors its exact flex layout so
+         the info panel always knows where the controls begin */}
+      <div
+        ref={deckRef}
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-x-0 bottom-0 z-0 invisible border-t border-transparent"
+      >
+        <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5 md:px-6">
+          <span className="h-10" />
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] tracking-[0.25em]">RATE</span>
+            <div className="flex overflow-hidden rounded border border-white/12">
+              {[0.5, 1, 2, 5, 10, 50].map((m) => (
+                <span key={m} className="px-2.5 py-1 text-[11px] tabular-nums">{m}×</span>
+              ))}
+            </div>
+            <span className="hidden text-[9px] tabular-nums tracking-widest lg:block">240 d/s</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] tracking-[0.25em]">ZOOM</span>
+            <span className="w-24 md:w-28" />
+            <span className="w-9 text-[10px] tabular-nums">100%</span>
+          </div>
+          <div className="flex items-center gap-2.5">
+            <span className="border px-3 py-1.5 text-[10px] font-bold tracking-[0.2em]">NEW SYSTEM</span>
+            <span className="hidden text-[9px] tabular-nums tracking-widest md:block">SEED 0000</span>
+          </div>
+          <div className="scroll-slim ml-auto flex max-w-full items-center gap-1 overflow-x-auto pb-0.5">
+            {system.bodies.map((b) => (
+              <span
+                key={b.id}
+                className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 px-2.5 py-1 text-[10px] tracking-[0.15em]"
+              >
+                <span className="h-1.5 w-1.5 rounded-full" />
+                {b.name.toUpperCase()}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <Deck
         playing={playing}
         onTogglePlay={() => setPlaying((p) => !p)}
@@ -916,6 +971,7 @@ export default function App() {
           body={selected}
           onClose={() => setSelected(null)}
           simDaysRef={simDaysRef}
+          bottomOffset={deckH}
         />
       )}
 
