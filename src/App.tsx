@@ -885,12 +885,12 @@ export default function App() {
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" style={{ animation: "blink 1.6s ease-in-out infinite" }} />
             PROCEDURAL SURVEY · {system.catalog} · SEED {system.seedLabel}
           </p>
-          <h1 className="font-display mt-1.5 text-[24px] font-black leading-none tracking-[0.06em] text-white md:text-[34px]">
+          <h1 className="font-display mt-1.5 whitespace-nowrap text-[clamp(15px,5.2vw,34px)] font-black leading-none tracking-[0.06em] text-white">
             {system.star.name.toUpperCase()}{" "}
             <span style={{ color: system.star.color }}>SYSTEM</span>
           </h1>
           <p className="mt-1.5 text-[10px] tracking-[0.18em] text-white/35">
-            {system.star.type.toUpperCase()} · {system.planets.length} WORLDS · FULL KEPLERIAN ELEMENTS
+            {system.star.type.toUpperCase()} · {system.planets.length} WORLDS
           </p>
         </div>
 
