@@ -74,6 +74,8 @@ export interface Body {
   surfTempMeanC?: number;
   surfTempMaxC?: number;
   absoluteMag?: number; // V-band planetary absolute magnitude H
+  /* atmosphere */
+  atmosphere?: Atmosphere;
 }
 
 export interface StarSystem {
@@ -142,6 +144,309 @@ const PHYS: Record<string, PhysProfile> = {
 const M_EARTH_KG = 5.972e24;
 const R_EARTH_KM = 6371;
 const V_EARTH_KM3 = 1.08321e12;
+
+/* ================= atmosphere model =================
+   Retention via Jeans escape (v_esc vs thermal speed at the exospheric
+   temperature). Composition from volcanic feedstock + photolysis +
+   condensation / cold-trap rules; H₂O from Magnus saturation pressure.
+   Spin drives dynamo shielding (wind erosion) and the circulation
+   regime; obliquity sets the seasonal pressure swing.                */
+
+export interface GasDef {
+  formula: string;
+  name: string;
+  mm: number; // molar mass, g/mol
+  color: string;
+  condK?: number; // condensation/frost point, K
+}
+
+export const GAS_DEFS: Record<string, GasDef> = {
+  H2:   { formula: "H₂",   name: "Hydrogen",           mm: 2.016,  color: "#ffb3c1" },
+  He:   { formula: "He",   name: "Helium",             mm: 4.003,  color: "#ffc9e8" },
+  HD:   { formula: "HD",   name: "Hydrogen deuteride", mm: 3.022,  color: "#ffc0c0" },
+  Ne:   { formula: "Ne",   name: "Neon",               mm: 20.18,  color: "#ffa3a3" },
+  N2:   { formula: "N₂",   name: "Nitrogen",           mm: 28.014, color: "#9fd0ff", condK: 63 },
+  O2:   { formula: "O₂",   name: "Oxygen",             mm: 31.998, color: "#9be8a8", condK: 54 },
+  Ar:   { formula: "Ar",   name: "Argon",              mm: 39.948, color: "#c9b8e8", condK: 84 },
+  Kr:   { formula: "Kr",   name: "Krypton",            mm: 83.798, color: "#b8c8e8" },
+  CO:   { formula: "CO",   name: "Carbon monoxide",    mm: 28.01,  color: "#d8dde3", condK: 68 },
+  CO2:  { formula: "CO₂",  name: "Carbon dioxide",     mm: 44.01,  color: "#ffd9a0", condK: 195 },
+  H2O:  { formula: "H₂O",  name: "Water vapor",        mm: 18.015, color: "#6fb1ff", condK: 240 },
+  CH4:  { formula: "CH₄",  name: "Methane",            mm: 16.04,  color: "#7fe8d0", condK: 91 },
+  NH3:  { formula: "NH₃",  name: "Ammonia",            mm: 17.031, color: "#b8e88a", condK: 195 },
+  H2S:  { formula: "H₂S",  name: "Hydrogen sulfide",   mm: 34.08,  color: "#e8d07a", condK: 213 },
+  SO2:  { formula: "SO₂",  name: "Sulfur dioxide",     mm: 64.06,  color: "#ffe08a", condK: 263 },
+  O3:   { formula: "O₃",   name: "Ozone",              mm: 47.997, color: "#8ae8d8" },
+  N2O:  { formula: "N₂O",  name: "Nitrous oxide",      mm: 44.013, color: "#a8e8b8" },
+  C2H6: { formula: "C₂H₆", name: "Ethane",             mm: 30.07,  color: "#e8b87a", condK: 90 },
+  HCN:  { formula: "HCN",  name: "Hydrogen cyanide",   mm: 27.026, color: "#d8b8e8", condK: 260 },
+  PH3:  { formula: "PH₃",  name: "Phosphine",          mm: 33.998, color: "#d8e87a" },
+  GeH4: { formula: "GeH₄", name: "Germane",            mm: 76.63,  color: "#c8c8f0" },
+  Na:   { formula: "Na",   name: "Sodium vapor",       mm: 22.99,  color: "#ffe8a0" },
+  K:    { formula: "K",    name: "Potassium vapor",    mm: 39.098, color: "#e8c8ff" },
+  SiO:  { formula: "SiO",  name: "Silicon monoxide",   mm: 44.08,  color: "#e0d0b8" },
+  Fe:   { formula: "Fe",   name: "Iron vapor",         mm: 55.845, color: "#f0b8a0" },
+};
+
+export interface GasShare {
+  id: string;
+  frac: number; // volume mixing ratio, 0..1
+}
+
+export interface Atmosphere {
+  pressureBar: number;
+  cloudTop: boolean; // giants — "surface" is the 1-bar cloud deck
+  collapsed: boolean; // night-side cold trap on locked thin-air worlds
+  molarMass: number; // g/mol
+  circulation: string;
+  seasonalPct: number | null; // ±% pressure swing from obliquity
+  haze: string; // "r,g,b" tint
+  hazeAmt: number; // 0..1 shell opacity
+  bandAmt: number; // 0..0.6 cloud-band opacity
+  termShade: number; // night-side terminator darkness
+  note: string;
+  gases: GasShare[]; // top 10 by volume
+}
+
+function clamp(v: number, lo: number, hi: number): number {
+  return Math.min(hi, Math.max(lo, v));
+}
+
+export interface AtmoInput {
+  type: string;
+  surfTempMeanC: number;
+  blackbodyK: number;
+  surfaceGravity: number;
+  massKg: number;
+  meanRadiusKm: number;
+  rotationHours: number;
+  axialTiltDeg: number;
+  locked: boolean;
+}
+
+export function buildAtmosphere(
+  b: AtmoInput,
+  ageGyr: number,
+  rng: {
+    rand: (min: number, max: number) => number;
+    chance: (p: number) => boolean;
+  }
+): Atmosphere {
+  const { rand, chance } = rng;
+  const type = b.type;
+  const giant = type === "Gas Giant" || type === "Ice Giant";
+  const Ts = (b.surfTempMeanC ?? 0) + 273;
+  const Tbb = b.blackbodyK ?? Ts;
+  const g = b.surfaceGravity ?? 9.8;
+  const rotH = b.rotationHours ?? 24;
+  const tilt = b.axialTiltDeg ?? 10;
+  const locked = !!b.locked;
+
+  const vEsc = Math.sqrt(
+    (2 * 6.674e-11 * (b.massKg ?? 1e24)) / ((b.meanRadiusKm ?? 6371) * 1000)
+  );
+  const texo = Math.max(Tbb * 2.2, 320); // exospheric temperature
+  const retain = (mm: number) =>
+    vEsc > 5.5 * Math.sqrt((3 * 1.381e-23 * texo) / (mm * 1.6605e-27));
+
+  const mix: Record<string, number> = {};
+  let pressureBar = 1;
+  let cloudTop = false;
+  let collapsed = false;
+
+  if (giant) {
+    cloudTop = true;
+    pressureBar = rand(0.7, 2.4); // 1-bar cloud deck
+    const hot = Tbb > 900; // hot giants: carbon lives as CO, not CH₄
+    mix.H2 = rand(0.82, 0.9);
+    mix.He = type === "Ice Giant" ? rand(0.12, 0.17) : rand(0.07, 0.15);
+    mix.CH4 = hot ? rand(2e-4, 1e-3) : type === "Ice Giant" ? rand(0.018, 0.042) : rand(0.002, 0.008);
+    mix.CO = hot ? rand(0.002, 0.012) : rand(2e-5, 8e-5);
+    mix.NH3 = type === "Gas Giant" ? rand(2e-4, 3e-3) : rand(3e-5, 2e-4);
+    mix.H2S = type === "Ice Giant" ? rand(2e-5, 4e-4) : rand(5e-6, 3e-5);
+    mix.H2O = rand(1e-5, 4e-4);
+    mix.HD = rand(2e-5, 4e-5);
+    mix.Ne = rand(1e-5, 3e-5);
+    mix.C2H6 = rand(2e-6, 9e-6);
+    mix.PH3 = rand(3e-7, 2e-6);
+    mix.GeH4 = rand(2e-7, 9e-7);
+  } else if (type === "Lava World") {
+    /* vaporized rock + volcanics; pressure climbs steeply with temperature */
+    pressureBar = clamp(rand(1e-5, 2e-2) * Math.pow(Ts / 1100, 6), 1e-7, 0.3);
+    mix.SO2 = 0.3; mix.O2 = 0.24; mix.CO2 = 0.14; mix.CO = 0.1;
+    mix.Na = 0.09; mix.K = 0.05; mix.SiO = 0.05; mix.Fe = 0.015; mix.O3 = 1e-4;
+  } else {
+    /* rocky / desert / ocean / super-earth / ice */
+    const cold = Ts < 200;
+    const temperate = Ts >= 230 && Ts <= 340;
+    const hotV = Ts > 450;
+    const isOcean = type === "Ocean World";
+    const isIce = type === "Ice World";
+
+    mix.N2 = isIce ? rand(0.5, 0.97) : rand(0.15, 0.85);
+    mix.CO2 = hotV ? rand(0.8, 0.96) : cold ? rand(0.005, 0.05) : rand(0.05, 0.85);
+    if (isOcean && temperate) { mix.CO2 = rand(0.001, 0.04); mix.N2 = rand(0.62, 0.9); } // carbonate sink
+    if (isOcean && hotV) { mix.H2O = rand(0.55, 0.95); mix.CO2 = rand(0.03, 0.2); mix.N2 = rand(0.02, 0.15); }
+    if (isIce && Ts >= 90 && Ts <= 160) mix.CH4 = rand(0.01, 0.12); // Titan regime
+    if (cold && Ts < 75) { mix.N2 *= 0.06; mix.CO = rand(0.3, 0.7); } // Pluto: CO outlasts N₂ frost
+    if (hotV) mix.CO = rand(0.01, 0.12);
+
+    /* ⁴⁰Ar from potassium decay — accumulates with system age */
+    mix.Ar = rand(0.004, 0.02) * Math.min(2, ageGyr / 4.5);
+
+    /* water vapor: Magnus saturation over open water */
+    if (!mix.H2O && Ts > 250 && Ts <= 500) {
+      const tC = Ts - 273;
+      const pSat = (6.1094 * Math.exp((17.625 * tC) / (tC + 243.04))) / 1000;
+      mix.H2O = Math.min(0.4, pSat);
+    }
+
+    /* oxygen: biology on temperate oceans, else CO₂ photolysis */
+    if (isOcean && temperate && chance(0.32)) mix.O2 = rand(0.03, 0.24);
+    else if (hotV) mix.O2 = rand(0.004, 0.06);
+
+    /* volcanic traces */
+    if (chance(0.55)) mix.SO2 = rand(0.001, hotV ? 0.04 : 0.012);
+    if (chance(0.4)) mix.H2S = rand(5e-5, 0.004);
+    if ((mix.O2 ?? 0) > 0.01) { mix.O3 = mix.O2 * rand(1e-6, 4e-6); mix.N2O = rand(1e-7, 5e-7); }
+    mix.Ne = rand(1e-5, 3e-5);
+    mix.Kr = rand(1e-7, 5e-7);
+    if (retain(2.016)) mix.H2 = rand(1e-6, 5e-5);
+
+    let p0: [number, number];
+    if (type === "Rocky World") p0 = [0.02, 8];
+    else if (type === "Desert World") p0 = [0.05, 4];
+    else if (type === "Ocean World") p0 = [0.6, 25];
+    else if (type === "Super-Earth") p0 = [2, 600];
+    else p0 = [1e-5, 0.05]; // Ice World — volatiles freeze out
+    pressureBar = rand(p0[0], p0[1]) * Math.pow(g / 9.807, 0.8);
+
+    /* spin-driven dynamo shields against stellar wind stripping;
+       slow and locked rotators lose their air over gigayears */
+    const magF = locked || rotH > 90 ? rand(0.4, 0.7) : rotH < 25 ? 1 : 0.85;
+    pressureBar *= magF * (1 + Math.max(0, 4 - ageGyr) * 0.08);
+
+    /* cold trap: locked worlds with thin air freeze volatiles onto the
+       night side — the atmosphere partially collapses */
+    if (locked && pressureBar < 0.5 && Ts < 260) {
+      collapsed = true;
+      for (const k of Object.keys(mix)) {
+        const def = GAS_DEFS[k];
+        if (def?.condK && Ts < def.condK + 40) mix[k] *= 0.03;
+      }
+      pressureBar *= 0.12;
+    }
+  }
+
+  /* Jeans escape strips light gases; cold surfaces condense volatiles */
+  for (const k of Object.keys(mix)) {
+    const def = GAS_DEFS[k];
+    if (!def) continue;
+    if (!retain(def.mm) && (def.mm < 10 || k === "H2O" || k === "NH3")) mix[k] *= 1e-4;
+    if (!giant && def.condK && Ts < def.condK) mix[k] *= 0.004;
+  }
+
+  /* normalize → top 10, padded with trace species so the survey always
+     resolves a full ten-constituent spectrum */
+  let sum = 0;
+  for (const k of Object.keys(mix)) sum += Math.max(0, mix[k]);
+  if (sum <= 0) { mix.CO2 = 1; sum = 1; }
+  const padPool = giant
+    ? ["Ne", "HD", "C2H6", "PH3", "GeH4", "CO", "H2S", "NH3", "H2O", "Ar", "Kr", "HCN"]
+    : ["Ne", "Kr", "Ar", "CO", "O3", "H2", "He", "CH4", "CO2", "N2", "N2O", "HCN"];
+  let padI = 0;
+  for (const k of padPool) {
+    if (Object.keys(mix).length >= 10) break;
+    if (!(k in mix)) mix[k] = sum * 1e-6 / ++padI;
+  }
+  const gases: GasShare[] = Object.entries(mix)
+    .map(([id, frac]) => ({ id, frac: Math.max(0, frac) / sum }))
+    .sort((x, y) => y.frac - x.frac)
+    .slice(0, 10);
+
+  const molarMass = gases.reduce((s, gs) => s + gs.frac * (GAS_DEFS[gs.id]?.mm ?? 28), 0);
+  const f = (k: string) => (mix[k] ? mix[k] / sum : 0);
+
+  let circulation: string;
+  if (collapsed || pressureBar < 0.001) circulation = "SURFACE-BOUND · COLLAPSING";
+  else if (locked) circulation = "DAY–NIGHT HADLEY CELL";
+  else if (rotH < 16 && pressureBar > 0.3) circulation = "ZONAL JET STREAMS · BANDED";
+  else if (rotH <= 60) circulation = "MID-LATITUDE STORM BELTS";
+  else circulation = "SLOW MERIDIONAL CELLS";
+  if (tilt > 35) circulation += " · EXTREME SEASONS";
+
+  /* seasonal ΔP: obliquity drives cap sublimation of the leading
+     condensable (CO₂ on Mars-analogs, N₂/CH₄ on Pluto-analogs) */
+  const condFrac = gases.reduce(
+    (m, gs) => (GAS_DEFS[gs.id]?.condK ? Math.max(m, gs.frac) : m),
+    0
+  );
+  const seasonalPct =
+    !giant && tilt > 8 && condFrac > 0.15 && Ts < 320
+      ? Math.round(Math.min(80, (tilt / 45) * condFrac * 55))
+      : null;
+
+  /* haze tint follows the dominant scatterer */
+  let haze = "165,200,255";
+  if (f("H2O") > 0.35) haze = "238,244,255";
+  else if (f("CO2") > 0.5) haze = "235,222,190";
+  else if (f("SO2") > 0.04) haze = "246,216,130";
+  else if (f("CH4") > 0.04 && Ts < 200) haze = "226,178,116"; // tholin photochemical smog
+  else if (giant) haze = "190,205,235";
+  let hazeAmt = giant
+    ? 0.34
+    : clamp((Math.log10(Math.max(1e-7, pressureBar)) + 3) / 6, 0, 1) * 0.55;
+  if (collapsed) hazeAmt *= 0.5;
+
+  /* circulation shows as cloud bands — thick air on fast rotators */
+  const bandAmt = giant
+    ? 0.5
+    : locked
+      ? 0
+      : pressureBar > 1.5 && rotH < 50
+        ? 0.3
+        : pressureBar > 0.3 && rotH < 20
+          ? 0.18
+          : 0;
+
+  const termShade = giant
+    ? 0.3
+    : pressureBar < 0.01
+      ? 0.8
+      : pressureBar < 0.3
+        ? 0.62
+        : pressureBar < 2
+          ? 0.5
+          : pressureBar < 10
+            ? 0.4
+            : 0.32;
+
+  let note: string;
+  if (collapsed) note = "NIGHT-SIDE COLD TRAP · VOLATILES FROZEN OUT";
+  else if (giant) note = f("CH4") > 0.01 ? "CH₄ ABSORBS RED · BLUE-GREEN HUE" : "PRIMORDIAL H₂–He NEBULAR GAS";
+  else if (f("H2O") > 0.35) note = "RUNAWAY GREENHOUSE · STEAM ATMOSPHERE";
+  else if (f("O2") > 0.1) note = "OXYGEN-RICH · POSSIBLE BIOSIGNATURE";
+  else if (f("CO2") > 0.6) note = "DENSE CO₂ · STRONG GREENHOUSE";
+  else if (f("SO2") > 0.04) note = "VOLCANIC · SULFUR CYCLE";
+  else if (f("CH4") > 0.04 && Ts < 200) note = "METHANE CYCLE · THOLIN HAZE";
+  else if (pressureBar < 0.02) note = "TENUOUS · SURFACE-BOUND";
+  else note = "N₂-DOMINANT · TEMPERATE REGIME";
+
+  return {
+    pressureBar,
+    cloudTop,
+    collapsed,
+    molarMass,
+    circulation,
+    seasonalPct,
+    haze,
+    hazeAmt,
+    bandAmt,
+    termShade,
+    note,
+    gases,
+  };
+}
 
 export function fmtSim(days: number): string {
   const y = Math.floor(days / 365.25);
@@ -326,6 +631,7 @@ export function generateSystem(seed: number): StarSystem {
   const massSolar = rand(spec.mass[0], spec.mass[1]);
   const luminositySolar = Math.pow(massSolar, 3.5);
   const starRotH = rand(6, 420); // sidereal rotation, hours
+  const ageGyr = rand(0.2, 10.5); // system age — argon accumulates with it
   const radiusSolar = Math.pow(massSolar, 0.85); // main-sequence mass–radius relation
   const rhoStar = (1.408 * massSolar) / Math.pow(radiusSolar, 3); // mean density, g/cm³
   /* Fluid Roche limit d = 2.44 · R★ · (ρ★/ρp)^⅓ for the fluffiest plausible
@@ -368,7 +674,7 @@ export function generateSystem(seed: number): StarSystem {
     radiusSolar,
     rotationHours: starRotH,
     rocheAU: rocheFluid,
-    ageLabel: `≈${rand(0.2, 10.5).toFixed(1)} Gyr`,
+    ageLabel: `≈${ageGyr.toFixed(1)} Gyr`,
   };
 
   /* --- planets --- */
@@ -513,6 +819,23 @@ export function generateSystem(seed: number): StarSystem {
     /* planetary absolute magnitude (V-band): standard small-body relation */
     const absoluteMag = 5 * Math.log10(1329 / (diameterKm * Math.sqrt(geoAlbedo)));
 
+    /* atmosphere: retention + chemistry + condensation model */
+    const atmosphere = buildAtmosphere(
+      {
+        type,
+        surfTempMeanC,
+        blackbodyK,
+        surfaceGravity,
+        massKg,
+        meanRadiusKm: meanR,
+        rotationHours,
+        axialTiltDeg,
+        locked,
+      },
+      ageGyr,
+      { rand, chance }
+    );
+
     const kmM = a * 149.6;
     const distanceLabel = `${
       kmM < 1000 ? `${kmM.toFixed(1)}M km` : `${(kmM / 1000).toFixed(2)}B km`
@@ -555,7 +878,7 @@ export function generateSystem(seed: number): StarSystem {
       fact: pick(FACTS[type]).replace("{n}", name),
       sizePx: Math.max(9, Math.min(34, Math.round(Math.sqrt(diameterKm) / 8))),
       startAngle: int(0, 359),
-      bands: giant || (type === "Ice World" && chance(0.4)),
+      bands: giant || atmosphere.bandAmt > 0,
       rings: (giant && chance(0.38)) || (type === "Ice World" && chance(0.1)),
       orderLabel: `${i + 1} of ${n}`,
       densityGcc,
@@ -590,6 +913,7 @@ export function generateSystem(seed: number): StarSystem {
       surfTempMeanC: Math.round(surfTempMeanC),
       surfTempMaxC: Math.round(surfTempMaxC),
       absoluteMag: Number(absoluteMag.toFixed(2)),
+      atmosphere,
     });
   }
 

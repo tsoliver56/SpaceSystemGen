@@ -34,3 +34,19 @@ export function fmtVolume(x: number): string {
 export function fmtMassKg(x: number): string {
   return `${sci(x)} kg`;
 }
+
+/** surface pressure across 12 orders of magnitude — µbar to kbar */
+export function fmtPressure(bar: number): string {
+  if (bar >= 1000) return `${(bar / 1000).toFixed(1)} kbar`;
+  if (bar >= 1) return `${bar.toFixed(1)} bar`;
+  if (bar >= 1e-3) return `${Math.round(bar * 1000)} mbar`;
+  return `${(bar * 1e6).toFixed(1)} µbar`;
+}
+
+export function fmtGasPct(frac: number): string {
+  const p = frac * 100;
+  if (p >= 10) return `${p.toFixed(1)}%`;
+  if (p >= 0.1) return `${p.toFixed(2)}%`;
+  if (p >= 0.001) return `${p.toFixed(3)}%`;
+  return "<0.001%";
+}

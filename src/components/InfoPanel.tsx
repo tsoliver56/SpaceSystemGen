@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode, type RefObject } from "react";
-import { fmtSim, SUN_RADIUS_AU, type Body } from "../lib/generator";
+import { fmtSim, GAS_DEFS, SUN_RADIUS_AU, type Body } from "../lib/generator";
 import { nuFromE, solveKepler } from "../lib/kepler";
-import { fmtKm, fmtMassKg, sci } from "../lib/format";
+import { fmtGasPct, fmtKm, fmtMassKg, fmtPressure, sci } from "../lib/format";
 
 interface InfoPanelProps {
   body: Body;
@@ -165,6 +165,101 @@ function MassBlock({ body }: { body: Body }) {
         ))}
       </div>
     </div>
+  );
+}
+
+const AtmoIcon = () => (
+  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+    <path d="M3 9.5h11a2.5 2.5 0 1 0-2.4-3.2" />
+    <path d="M5 13.5h13a2.5 2.5 0 1 1-2.4 3.2" />
+    <path d="M8 17.5h6" />
+  </svg>
+);
+
+function AtmoSection({ body }: { body: Body }) {
+  const atmo = body.atmosphere;
+  if (!atmo) return null;
+  return (
+    <>
+      <SectionHead icon={<AtmoIcon />} title="ATMOSPHERE" count={14} accent="#8fd0e8" />
+
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <Stat
+          label="SURFACE PRESSURE"
+          value={fmtPressure(atmo.pressureBar)}
+          sub={
+            atmo.cloudTop
+              ? "CLOUD-TOP LEVEL · NO SURFACE"
+              : atmo.collapsed
+                ? "NIGHT-SIDE COLLAPSED"
+                : `${Math.max(1, Math.round(atmo.pressureBar * 101.325)).toLocaleString("en-US")} kPa`
+          }
+          accent="#8fd0e8"
+        />
+        <Stat
+          label="MEAN MOLAR MASS"
+          value={`${atmo.molarMass.toFixed(2)} g/mol`}
+          sub="DRY AIR = 28.97"
+        />
+        <Stat
+          label="SEASONAL ΔP"
+          value={atmo.seasonalPct != null ? `±${atmo.seasonalPct}%` : "NEGLIGIBLE"}
+          sub={`OBLIQUITY ${(body.axialTiltDeg ?? 0).toFixed(1)}°`}
+        />
+        <Stat
+          label="SPIN · ROTATION"
+          value={body.locked ? "LOCKED" : `${(body.rotationHours ?? 0).toFixed(1)} h`}
+          sub={atmo.circulation}
+        />
+      </div>
+
+      {/* composition by volume — ten most abundant species */}
+      <div className="mt-2 border border-white/8 bg-white/[0.025] px-3 py-2.5">
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-[8px] tracking-[0.22em] text-white/40">
+            COMPOSITION BY VOLUME · TOP 10
+          </span>
+          <span className="text-right text-[7.5px] tracking-[0.15em] text-white/35">
+            {atmo.note}
+          </span>
+        </div>
+        <div className="mt-2">
+          {atmo.gases.map((gs) => {
+            const def = GAS_DEFS[gs.id];
+            if (!def) return null;
+            return (
+              <div key={gs.id} className="mt-1.5 flex items-center gap-2">
+                <span
+                  className="w-11 shrink-0 border px-1 py-0.5 text-center text-[9px] font-bold"
+                  style={{ borderColor: `${def.color}55`, color: def.color }}
+                >
+                  {def.formula}
+                </span>
+                <span className="hidden w-24 shrink-0 truncate text-[8.5px] tracking-wider text-white/50 sm:block">
+                  {def.name.toUpperCase()}
+                </span>
+                <div className="h-[3px] min-w-0 flex-1 overflow-hidden bg-white/6">
+                  <div
+                    className="h-full rounded-full transition-[width] duration-700 ease-out"
+                    style={{
+                      width: `${Math.max(1.2, Math.pow(gs.frac, 0.32) * 100)}%`,
+                      background: `linear-gradient(90deg, ${def.color}44, ${def.color})`,
+                      boxShadow: `0 0 6px ${def.color}66`,
+                    }}
+                  />
+                </div>
+                <span className="w-16 shrink-0 text-right text-[9.5px] tabular-nums text-white/70">
+                  {fmtGasPct(gs.frac)}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        <p className="mt-2 text-[7.5px] leading-relaxed tracking-[0.18em] text-white/25">
+          JEANS ESCAPE · MAGNUS H₂O SATURATION · COLD-TRAP CONDENSATION · DYNAMO SHIELDING FROM SPIN
+        </p>
+      </div>
+    </>
   );
 }
 
@@ -387,6 +482,9 @@ export default function InfoPanel({ body, onClose, simDaysRef }: InfoPanelProps)
               <Meter label="SURFACE GRAVITY · EARTH = 1" value={`${((body.surfaceGravity ?? 0) / 9.807).toFixed(2)} g`} frac={Math.min(1, (body.surfaceGravity ?? 0) / 9.807 / 3)} color={body.color} />
               <Meter label="MEAN DENSITY · WATER = 1" value={`${(body.densityGcc ?? 0).toFixed(2)} g/cm³`} frac={Math.min(1, (body.densityGcc ?? 0) / 6)} color={body.color} />
             </div>
+
+            {/* ---------- 3 · ATMOSPHERE ---------- */}
+            <AtmoSection body={body} />
           </>
         )}
 

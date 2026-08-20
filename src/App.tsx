@@ -51,6 +51,7 @@ export default function App() {
   const trailCanvasRef = useRef<HTMLCanvasElement>(null);
   const beltCanvasRef = useRef<HTMLCanvasElement>(null);
   const planetEls = useRef<Record<string, HTMLButtonElement | null>>({});
+  const termEls = useRef<Record<string, HTMLSpanElement | null>>({});
   const trailPts = useRef<Record<string, { x: number; y: number }[]>>({});
   const starSpinRef = useRef<HTMLSpanElement | null>(null);
   const simDaysRef = useRef(0);
@@ -285,6 +286,15 @@ export default function App() {
             const y = g.cy + pt.y;
             const s = Math.max(0.86, Math.min(1.14, 1 + pt.depth / (g.maxR * 2)));
             el.style.transform = `translate3d(${x}px,${y}px,0) translate(-50%,-50%) scale(${s.toFixed(3)})`;
+
+            /* terminator: night side always faces away from the star;
+               thick atmospheres soften the day-night boundary */
+            const termEl = termEls.current[p.id];
+            if (termEl) {
+              const deg = (Math.atan2(y - g.cy, x - g.cx) * 180) / Math.PI + 90;
+              const shade = p.atmosphere?.termShade ?? 0.6;
+              termEl.style.background = `linear-gradient(${deg.toFixed(1)}deg, transparent 36%, rgba(2,5,14,${shade}) 82%)`;
+            }
 
             if (playingRef.current) {
               const pts = (trailPts.current[p.id] ||= []);
@@ -744,6 +754,18 @@ export default function App() {
                       />
                     </>
                   )}
+                  {/* atmosphere shell — haze tint & extent follow composition and pressure */}
+                  {p.atmosphere && p.atmosphere.hazeAmt > 0.02 && (
+                    <span
+                      className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full"
+                      style={{
+                        width: p.sizePx * (1.7 + p.atmosphere.hazeAmt * 0.9),
+                        height: p.sizePx * (1.7 + p.atmosphere.hazeAmt * 0.9),
+                        background: `radial-gradient(circle, rgba(${p.atmosphere.haze},0.5) 32%, rgba(${p.atmosphere.haze},0.16) 52%, transparent 64%)`,
+                        opacity: p.atmosphere.hazeAmt,
+                      }}
+                    />
+                  )}
                   <span
                     className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-full transition-transform duration-300 group-hover:scale-[1.3]"
                     style={{
@@ -756,15 +778,24 @@ export default function App() {
                   >
                     {p.bands && (
                       <span
-                        className="absolute inset-0 opacity-50"
+                        className="absolute inset-0"
                         style={{
                           background:
                             "repeating-linear-gradient(90deg, rgba(0,0,0,0.18) 0 2px, rgba(255,255,255,0.10) 2px 3px, transparent 3px 6px)",
                           transform: `rotate(${p.axialTiltDeg ?? 0}deg)`,
                           animation: `bandflow ${bandDur.toFixed(1)}s linear infinite`,
+                          opacity: p.atmosphere?.bandAmt ?? 0.5,
                         }}
                       />
                     )}
+                    {/* day-night terminator — aimed away from the star every
+                        frame; sharp on airless worlds, soft under thick air */}
+                    <span
+                      ref={(el) => {
+                        termEls.current[p.id] = el;
+                      }}
+                      className="pointer-events-none absolute inset-0 rounded-full"
+                    />
                   </span>
                   {p.rings && (
                     <>
