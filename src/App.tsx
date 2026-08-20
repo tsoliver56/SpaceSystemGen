@@ -138,7 +138,6 @@ export default function App() {
       Array.from({ length: 360 }, () => ({
         t: Math.random(),
         a0: Math.random() * Math.PI * 2,
-        w: (2 * Math.PI) / (1400 + Math.random() * 1300),
         s: 0.4 + Math.random() * 1.05,
         al: 0.12 + Math.random() * 0.4,
       })),
@@ -174,6 +173,24 @@ export default function App() {
     const planets = system.planets;
     const belt = system.belt;
 
+    /* belt grains: fixed radial home in AU (inside the cleared gap), angular
+       speed from Kepler III at each grain's own semi-major axis — inner
+       grains visibly overtake outer ones */
+    const mStar = system.star.massSolar ?? 1;
+    const beltAst =
+      belt && belt.outerAU > belt.innerAU
+        ? asteroids.map((k) => {
+            const aAU = belt.innerAU + k.t * (belt.outerAU - belt.innerAU);
+            return {
+              ...k,
+              aAU,
+              w:
+                (2 * Math.PI) /
+                (365.25 * Math.sqrt((aAU * aAU * aAU) / mStar)),
+            };
+          })
+        : null;
+
     const sizeCanvas = (c: HTMLCanvasElement) => {
       const dpr = window.devicePixelRatio || 1;
       c.width = Math.max(1, c.clientWidth * dpr);
@@ -205,28 +222,26 @@ export default function App() {
       if (!bCtx && beltCanvasRef.current) bCtx = sizeCanvas(beltCanvasRef.current);
 
       if (g.ready && g.radii.length === planets.length) {
-        // asteroid belt between two neighbouring worlds
+        // asteroid belt — AU-space annulus inside the widest cleared gap
         const beltCtx = bCtx;
         if (beltCtx) {
           beltCtx.clearRect(0, 0, g.w, g.h);
-          if (belt) {
-            const inner = g.radii[belt.innerIdx] + 12;
-            const outer = g.radii[belt.outerIdx] - 12;
-            if (outer > inner) {
-              beltCtx.fillStyle = "#a99c86";
-              for (const a of asteroids) {
-                const r = inner + a.t * (outer - inner);
-                const ang = a.a0 + sim * a.w;
-                beltCtx.globalAlpha = a.al;
-                beltCtx.fillRect(
-                  g.cx + Math.cos(ang) * r,
-                  g.cy + Math.sin(ang) * r,
-                  a.s,
-                  a.s
-                );
-              }
-              beltCtx.globalAlpha = 1;
+          if (beltAst) {
+            const toPxBelt = (au: number) =>
+              auToPx(au, g.sunVis, g.maxR, g.scaleAU);
+            beltCtx.fillStyle = "#a99c86";
+            for (const k of beltAst) {
+              const r = toPxBelt(k.aAU);
+              const ang = k.a0 + sim * k.w;
+              beltCtx.globalAlpha = k.al;
+              beltCtx.fillRect(
+                g.cx + Math.cos(ang) * r,
+                g.cy + Math.sin(ang) * r,
+                k.s,
+                k.s
+              );
             }
+            beltCtx.globalAlpha = 1;
           }
         }
 
@@ -246,7 +261,7 @@ export default function App() {
                 (2 * Math.PI * sim) / p.periodDays) %
               (2 * Math.PI);
             const toPx = (au: number) =>
-              auToPx(au, g.sunVis, g.maxR, system.maxAU);
+              auToPx(au, g.sunVis, g.maxR, g.scaleAU);
             const pt = orbitPointFromM(
               p.distanceAU,
               p.eccentricity ?? 0,
@@ -669,6 +684,10 @@ export default function App() {
             {system.planets.map((p) => {
               const hit = Math.max(36, p.sizePx + 18);
               const active = selected?.id === p.id;
+              /* cloud bands drift at the world's own spin rate and lean
+                 with its axial tilt; gas giants visibly bulge (flattening) */
+              const bandDur = Math.max(4, Math.min(30, (p.rotationHours ?? 24) * 0.85));
+              const squash = 1 - (p.flattening ?? 0);
               return (
                 <button
                   key={p.id}
@@ -701,6 +720,7 @@ export default function App() {
                       height: p.sizePx,
                       background: `radial-gradient(circle at 32% 30%, ${p.colorSoft} 0%, ${p.color} 48%, ${p.colorDark} 100%)`,
                       boxShadow: `0 0 ${Math.round(p.sizePx * 0.9)}px ${p.glow}`,
+                      transform: `scaleY(${squash.toFixed(4)})`,
                     }}
                   >
                     {p.bands && (
@@ -709,7 +729,8 @@ export default function App() {
                         style={{
                           background:
                             "repeating-linear-gradient(90deg, rgba(0,0,0,0.18) 0 2px, rgba(255,255,255,0.10) 2px 3px, transparent 3px 6px)",
-                          animation: "bandflow 12s linear infinite",
+                          transform: `rotate(${p.axialTiltDeg ?? 0}deg)`,
+                          animation: `bandflow ${bandDur.toFixed(1)}s linear infinite`,
                         }}
                       />
                     )}

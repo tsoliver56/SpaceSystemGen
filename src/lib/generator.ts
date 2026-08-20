@@ -83,7 +83,9 @@ export interface StarSystem {
   star: Body;
   planets: Body[];
   bodies: Body[];
-  belt: { innerIdx: number; outerIdx: number } | null;
+  /** debris belt, in AU — always strictly inside the widest cleared gap,
+   *  so it never intersects any planet's orbit (incl. eccentric apsides) */
+  belt: { innerAU: number; outerAU: number } | null;
   maxAU: number;
   /** system-wide fluid Roche limit (AU) — no orbit may cross inside it */
   rocheAU: number;
@@ -388,8 +390,29 @@ export function generateSystem(seed: number): StarSystem {
   /* compression may never drag the inner world back inside the Roche-safe floor */
   scale = Math.max(scale, aFloor / orbits[0]);
 
+  const aAll = orbits.map((o) => o * scale);
+
+  /* eccentricities: biased low like real planets, clamped against the Roche
+     limit, then mutually trimmed so neighbouring apsidal corridors never
+     cross — peri(i+1) always exceeds apo(i) by a clear margin */
+  const eccAll = aAll.map((a) => {
+    let e = 0.02 + 0.28 * Math.pow(rnd(), 1.5);
+    return Math.min(e, Math.max(0, 1 - (3 * rocheFluid) / a - 1e-4));
+  });
+  for (let i = 0; i < n - 1; i++) {
+    const margin = 0.06 * aAll[i];
+    const need = aAll[i] * (1 + eccAll[i]) + margin;
+    if (aAll[i + 1] * (1 - eccAll[i + 1]) < need) {
+      eccAll[i + 1] = 1 - need / aAll[i + 1];
+      if (eccAll[i + 1] < 0) {
+        eccAll[i + 1] = 0;
+        eccAll[i] = Math.max(0, (aAll[i + 1] - margin) / aAll[i] - 1);
+      }
+    }
+  }
+
   for (let i = 0; i < n; i++) {
-    const a = orbits[i] * scale;
+    const a = aAll[i];
     let type: string;
     if (a < snowLine * 0.55) {
       type = pick(["Lava World", "Lava World", "Rocky World", "Rocky World", "Rocky World", "Desert World", "Desert World"]);
@@ -421,12 +444,10 @@ export function generateSystem(seed: number): StarSystem {
       ROCHE_K * radiusSolar * SUN_RADIUS_AU * Math.cbrt(rhoStar / densityGcc);
     const rocheMargin = a / rocheAU;
 
-    /* Keplerian elements. Eccentricity is biased low (most real planets are
-       near-circular) and hard-clamped so the periapsis q = a(1−e) never
-       approaches the Roche limit; inclinations are modest and mutual,
-       Ω and ω are free orientations. */
-    let ecc = 0.02 + 0.28 * Math.pow(rnd(), 1.5);
-    ecc = Math.min(ecc, Math.max(0, 1 - (3 * rocheFluid) / a - 1e-4));
+    /* Keplerian elements: e comes from the mutually-cleared table above
+       (periapsis stays ≥ 3× the Roche limit; apsidal corridors never
+       overlap); i, Ω and ω are free orientations. */
+    const ecc = eccAll[i];
     const incl = 18 * Math.pow(rnd(), 2);
     const lonAsc = rnd() * 360;
     const argPeri = rnd() * 360;
@@ -570,13 +591,32 @@ export function generateSystem(seed: number): StarSystem {
   star.worlds = n;
   const maxAU = planets[planets.length - 1].distanceAU;
 
-  const belt =
-    n >= 4
-      ? (() => {
-          const innerIdx = int(0, Math.min(n - 2, 4));
-          return { innerIdx, outerIdx: innerIdx + 1 };
-        })()
-      : null;
+  /* debris belt: carved from the widest apsidal gap between neighbours and
+     trimmed to its middle half — structurally incapable of intersecting any
+     planet's orbit, however eccentric */
+  let belt: { innerAU: number; outerAU: number } | null = null;
+  if (n >= 4) {
+    let best = -1;
+    let bestGap = 0;
+    for (let i = 0; i < n - 1; i++) {
+      const gap =
+        aAll[i + 1] * (1 - eccAll[i + 1]) - aAll[i] * (1 + eccAll[i]);
+      if (gap > bestGap) {
+        bestGap = gap;
+        best = i;
+      }
+    }
+    if (best >= 0 && bestGap >= 0.6) {
+      belt = {
+        innerAU: Number(
+          (aAll[best] * (1 + eccAll[best]) + bestGap * 0.25).toFixed(3)
+        ),
+        outerAU: Number(
+          (aAll[best + 1] * (1 - eccAll[best + 1]) - bestGap * 0.25).toFixed(3)
+        ),
+      };
+    }
+  }
 
   return {
     seed,
