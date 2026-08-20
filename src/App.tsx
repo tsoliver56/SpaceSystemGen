@@ -722,7 +722,7 @@ export default function App() {
                           width: p.sizePx * 2.3,
                           height: p.sizePx * 2.3,
                           border: `2px solid ${p.glow}`,
-                          transform: "translate(-50%,-50%) rotate(-16deg) scaleY(0.32)",
+                          transform: `translate(-50%,-50%) rotate(${-(p.axialTiltDeg ?? 16)}deg) scaleY(0.32)`,
                         }}
                       />
                       <span
@@ -731,7 +731,7 @@ export default function App() {
                           width: p.sizePx * 1.8,
                           height: p.sizePx * 1.8,
                           border: `1px solid ${p.glow}`,
-                          transform: "translate(-50%,-50%) rotate(-16deg) scaleY(0.32)",
+                          transform: `translate(-50%,-50%) rotate(${-(p.axialTiltDeg ?? 16)}deg) scaleY(0.32)`,
                         }}
                       />
                     </>

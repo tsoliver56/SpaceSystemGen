@@ -1,11 +1,21 @@
-import { useEffect, useState, type RefObject } from "react";
+import { useEffect, useState, type ReactNode, type RefObject } from "react";
 import { fmtSim, SUN_RADIUS_AU, type Body } from "../lib/generator";
-import { DEG, keplerState } from "../lib/kepler";
+import { nuFromE, solveKepler } from "../lib/kepler";
+import { fmtKm, fmtMassKg, sci } from "../lib/format";
 
 interface InfoPanelProps {
   body: Body;
   onClose: () => void;
   simDaysRef: RefObject<number>;
+}
+
+const M_EARTH_KG = 5.972e24;
+const V_EARTH_KM3 = 1.08321e12;
+const AU_KM = 149.6e6;
+
+function auKm(au: number): string {
+  const km = au * AU_KM;
+  return km >= 1e9 ? `${(km / 1e9).toFixed(2)}B km` : `${(km / 1e6).toFixed(1)}M km`;
 }
 
 const CloseIcon = () => (
@@ -14,38 +24,71 @@ const CloseIcon = () => (
   </svg>
 );
 
-function Stat({ label, value, accent }: { label: string; value: string; accent?: string }) {
+const OrbitIcon = () => (
+  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+    <ellipse cx="12" cy="12" rx="9" ry="5.2" />
+    <circle cx="6" cy="11" r="1.7" fill="currentColor" stroke="none" />
+    <circle cx="17.5" cy="8.6" r="1.2" fill="currentColor" stroke="none" />
+  </svg>
+);
+
+const BodyIcon = () => (
+  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+    <circle cx="12" cy="12" r="7" />
+    <path d="M5 12h14" />
+    <path d="M6.2 8.6c3.6 1.6 8 1.6 11.6 0" />
+    <path d="M6.2 15.4c3.6-1.6 8-1.6 11.6 0" />
+  </svg>
+);
+
+function SectionHead({
+  icon,
+  title,
+  count,
+  accent,
+}: {
+  icon: ReactNode;
+  title: string;
+  count: number;
+  accent: string;
+}) {
+  return (
+    <div className="mt-6 flex items-center gap-2.5">
+      <span
+        className="grid h-6 w-6 shrink-0 place-items-center border"
+        style={{ borderColor: `${accent}66`, color: accent }}
+      >
+        {icon}
+      </span>
+      <h3 className="font-display text-[11px] font-bold tracking-[0.28em]" style={{ color: accent }}>
+        {title}
+      </h3>
+      <span className="h-px flex-1 bg-white/10" />
+      <span className="text-[8px] tabular-nums tracking-[0.2em] text-white/30">
+        {String(count).padStart(2, "0")} FIELDS
+      </span>
+    </div>
+  );
+}
+
+function Stat({
+  label,
+  value,
+  sub,
+  accent,
+}: {
+  label: string;
+  value: string;
+  sub?: string;
+  accent?: string;
+}) {
   return (
     <div className="border border-white/8 bg-white/[0.025] px-3 py-2.5 transition-colors duration-200 hover:border-white/20 hover:bg-white/[0.05]">
       <div className="text-[8px] tracking-[0.22em] text-white/40">{label}</div>
       <div className="mt-1 text-[13px] font-bold tabular-nums" style={{ color: accent ?? "#f2f6ff" }}>
         {value}
       </div>
-    </div>
-  );
-}
-
-/** compact Keplerian-element cell: big symbol + value + caption */
-function Elem({
-  sym,
-  value,
-  label,
-  accent,
-}: {
-  sym: string;
-  value: string;
-  label: string;
-  accent: string;
-}) {
-  return (
-    <div className="border border-white/8 bg-white/[0.02] px-2.5 py-2 transition-colors duration-200 hover:border-white/25 hover:bg-white/[0.05]">
-      <div className="flex items-baseline gap-1.5">
-        <span className="font-display text-[13px] font-bold leading-none" style={{ color: accent }}>
-          {sym}
-        </span>
-        <span className="text-[11px] font-bold tabular-nums text-white/90">{value}</span>
-      </div>
-      <div className="mt-1 text-[7.5px] tracking-[0.18em] text-white/38">{label}</div>
+      {sub && <div className="mt-0.5 text-[8.5px] tabular-nums tracking-wider text-white/35">{sub}</div>}
     </div>
   );
 }
@@ -77,43 +120,97 @@ function Meter({ label, value, frac, color }: { label: string; value: string; fr
   );
 }
 
-interface Live {
-  m: string;
-  nu: string;
-  r: string;
-  pct: string;
-  clock: string;
+/* total mass + solid / liquid / gas budget with a stacked composition bar */
+function MassBlock({ body }: { body: Body }) {
+  const total = body.massKg ?? 0;
+  const rows: { label: string; kg: number; color: string }[] = [
+    { label: "SOLID / LAND", kg: body.solidMassKg ?? 0, color: "#c9a97a" },
+    { label: "LIQUID · OCEANS, LAKES", kg: body.liquidMassKg ?? 0, color: "#5aa0ff" },
+  ];
+  const gasKg = body.gasMassKg ?? 0;
+  if (total > 0 && gasKg / total >= 0.05) {
+    rows.push({ label: "GASEOUS ENVELOPE", kg: gasKg, color: "#b8a0e8" });
+  }
+  return (
+    <div className="col-span-2 border border-white/8 bg-white/[0.025] px-3 py-2.5">
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-[8px] tracking-[0.22em] text-white/40">TOTAL MASS</span>
+        <span className="text-[13px] font-bold tabular-nums" style={{ color: body.colorSoft }}>
+          {fmtMassKg(total)}
+        </span>
+      </div>
+      <div className="mt-1 text-[8.5px] tabular-nums tracking-wider text-white/35">
+        {(total / M_EARTH_KG).toFixed(2)} M⊕
+      </div>
+      <div className="mt-2 flex h-1.5 w-full overflow-hidden bg-white/6">
+        {rows.map((r) => (
+          <span
+            key={r.label}
+            className="h-full transition-[width] duration-700 ease-out"
+            style={{ width: `${total ? (r.kg / total) * 100 : 0}%`, background: r.color, boxShadow: `0 0 6px ${r.color}88` }}
+          />
+        ))}
+      </div>
+      <div className="mt-2 space-y-1">
+        {rows.map((r) => (
+          <div key={r.label} className="flex items-center justify-between gap-2 text-[9px] tabular-nums">
+            <span className="flex items-center gap-1.5 tracking-[0.15em] text-white/45">
+              <span className="h-1.5 w-1.5 rounded-full" style={{ background: r.color }} />
+              {r.label}
+            </span>
+            <span className="text-white/65">
+              {sci(r.kg)} kg · {total ? ((r.kg / total) * 100).toFixed(1) : "0.0"}%
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TempRow({ body }: { body: Body }) {
+  const cells = [
+    { label: "MIN", v: body.surfTempMinC ?? 0, c: "#7fb2ff" },
+    { label: "MEAN", v: body.surfTempMeanC ?? 0, c: body.colorSoft },
+    { label: "MAX", v: body.surfTempMaxC ?? 0, c: "#ffab7a" },
+  ];
+  return (
+    <div className="col-span-2 border border-white/8 bg-white/[0.025] px-3 py-2.5">
+      <div className="text-[8px] tracking-[0.22em] text-white/40">SURFACE TEMPERATURE</div>
+      <div className="mt-1.5 grid grid-cols-3 gap-2">
+        {cells.map((c) => (
+          <div key={c.label}>
+            <div className="text-[7.5px] tracking-[0.2em] text-white/35">{c.label}</div>
+            <div className="mt-0.5 text-[13px] font-bold tabular-nums" style={{ color: c.c }}>
+              {Math.round(c.v).toLocaleString("en-US")}°C
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export default function InfoPanel({ body, onClose, simDaysRef }: InfoPanelProps) {
-  const [live, setLive] = useState<Live>({
-    m: "0.0",
-    nu: "0.0",
-    r: "0.000",
-    pct: "0.0",
-    clock: fmtSim(0),
-  });
+  const [eph, setEph] = useState({ M: "0.0", nu: "0.0", rAU: "0.00", pct: "0.0", clock: fmtSim(0) });
 
   useEffect(() => {
     const id = window.setInterval(() => {
       const sim = simDaysRef.current ?? 0;
       if (body.isStar) {
-        setLive({ m: "0", nu: "0", r: "0", pct: "0", clock: fmtSim(sim) });
+        setEph((e) => ({ ...e, clock: fmtSim(sim) }));
         return;
       }
-      const mDeg =
-        ((body.startAngle + (360 * sim) / body.periodDays) % 360 + 360) % 360;
-      const st = keplerState(
-        body.distanceAU,
-        body.eccentricity ?? 0,
-        mDeg * DEG
-      );
-      const nuDeg = ((st.nu / DEG) % 360 + 360) % 360;
-      setLive({
-        m: mDeg.toFixed(1),
-        nu: nuDeg.toFixed(1),
-        r: st.rAU.toFixed(3),
-        pct: ((mDeg / 360) * 100).toFixed(1),
+      const M = ((sim % body.periodDays) / body.periodDays) * 360;
+      const E = solveKepler((M * Math.PI) / 180, body.eccentricity ?? 0);
+      const rRel = 1 - (body.eccentricity ?? 0) * Math.cos(E);
+      let nu = (nuFromE(E, body.eccentricity ?? 0) * 180) / Math.PI;
+      if (nu < 0) nu += 360;
+      setEph({
+        M: M.toFixed(1),
+        nu: nu.toFixed(1),
+        rAU: (body.distanceAU * rRel).toFixed(3),
+        pct: M.toFixed(1),
         clock: fmtSim(sim),
       });
     }, 120);
@@ -122,12 +219,10 @@ export default function InfoPanel({ body, onClose, simDaysRef }: InfoPanelProps)
 
   const isStar = !!body.isStar;
   const sizeFrac = Math.pow(body.diameterKm / 139820, 0.5);
-  const distFrac = isStar ? 1 : Math.sqrt(body.distanceAU) / Math.sqrt(30);
-  const periodFrac = isStar ? 1 : Math.pow(body.periodDays / 60190, 0.35);
 
   return (
     <aside
-      className="absolute inset-x-0 bottom-[60px] z-30 max-h-[52dvh] overflow-y-auto border-t bg-[#070c18]/94 backdrop-blur-sm md:inset-y-0 md:bottom-auto md:right-0 md:left-auto md:max-h-none md:w-[376px] md:border-l md:border-t-0"
+      className="absolute inset-x-0 bottom-[60px] z-30 max-h-[52dvh] overflow-y-auto scroll-slim border-t bg-[#070c18]/94 backdrop-blur-sm md:inset-y-0 md:bottom-auto md:right-0 md:left-auto md:max-h-none md:w-[388px] md:border-l md:border-t-0"
       style={{ animation: "sheetin .45s cubic-bezier(.2,.8,.25,1) both" }}
       aria-label={`Details for ${body.name}`}
     >
@@ -161,52 +256,19 @@ export default function InfoPanel({ body, onClose, simDaysRef }: InfoPanelProps)
           </button>
         </div>
 
-        {/* live ephemeris */}
-        <div className="mt-5 border border-white/8 bg-white/[0.02] px-3 py-2.5">
-          <div className="flex items-baseline justify-between">
-            <span className="text-[8px] tracking-[0.25em] text-white/40">
-              {isStar ? "MISSION CLOCK" : "LIVE EPHEMERIS"}
-            </span>
-            <span className="text-[10px] tabular-nums text-white/50">{live.clock}</span>
-          </div>
-          {!isStar && (
-            <>
-              <div className="mt-2 grid grid-cols-3 gap-2">
-                <div>
-                  <div className="text-[7.5px] tracking-[0.18em] text-white/38">MEAN ANOM. M</div>
-                  <div className="text-[13px] font-bold tabular-nums" style={{ color: body.colorSoft }}>
-                    {live.m}°
-                  </div>
-                </div>
-                <div>
-                  <div className="text-[7.5px] tracking-[0.18em] text-white/38">TRUE ANOM. ν</div>
-                  <div className="text-[13px] font-bold tabular-nums text-white/85">{live.nu}°</div>
-                </div>
-                <div>
-                  <div className="text-[7.5px] tracking-[0.18em] text-white/38">DISTANCE r</div>
-                  <div className="text-[13px] font-bold tabular-nums text-white/85">{live.r} AU</div>
-                </div>
+        {isStar ? (
+          /* ================= STAR — single readout ================= */
+          <>
+            <div className="mt-5 border border-white/8 bg-white/[0.02] px-3 py-2.5">
+              <div className="flex items-baseline justify-between">
+                <span className="text-[8px] tracking-[0.25em] text-white/40">MISSION CLOCK</span>
+                <span className="text-[11px] tabular-nums" style={{ color: body.colorSoft }}>
+                  {eph.clock}
+                </span>
               </div>
-              <div className="mt-2 h-[3px] overflow-hidden bg-white/8">
-                <div
-                  className="h-full"
-                  style={{
-                    width: `${live.pct}%`,
-                    background: body.color,
-                    boxShadow: `0 0 8px ${body.glow}`,
-                    transition: "width .12s linear",
-                  }}
-                />
-              </div>
-            </>
-          )}
-        </div>
-
-        {/* physical stats */}
-        <div className="mt-4 grid grid-cols-2 gap-2">
-          <Stat label="DIAMETER" value={`${body.diameterKm.toLocaleString("en-US")} km`} accent={body.colorSoft} />
-          {isStar ? (
-            <>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              <Stat label="DIAMETER" value={`${body.diameterKm.toLocaleString("en-US")} km`} accent={body.colorSoft} />
               <Stat label="MASS" value={`${(body.massSolar ?? 1).toFixed(2)} M☉`} />
               <Stat label="LUMINOSITY" value={`${(body.luminositySolar ?? 1).toFixed(2)} L☉`} />
               <Stat label="SURFACE TEMP" value={body.tempLabel} />
@@ -217,92 +279,126 @@ export default function InfoPanel({ body, onClose, simDaysRef }: InfoPanelProps)
                 label="ROCHE LIMIT"
                 value={
                   body.rocheAU != null
-                    ? `${body.rocheAU.toFixed(4)} AU · ${(
-                        body.rocheAU /
-                        ((body.radiusSolar ?? 1) * SUN_RADIUS_AU)
-                      ).toFixed(1)} R★`
+                    ? `${body.rocheAU.toFixed(4)} AU · ${(body.rocheAU / ((body.radiusSolar ?? 1) * SUN_RADIUS_AU)).toFixed(1)} R★`
                     : "—"
                 }
                 accent="#ff9d8a"
               />
               <Stat label="WORLDS" value={String(body.worlds ?? 0)} accent={body.colorSoft} />
               <Stat label="CLASS" value={body.type.split(" ")[0]} />
-            </>
-          ) : (
-            <>
-              <Stat label="DAY LENGTH" value={body.dayLength} />
-              <Stat label="MOONS" value={body.moons} />
-              <Stat label="MEAN TEMP" value={body.tempLabel} />
-              <Stat label="ORBIT VELOCITY" value={`${body.speedKmS.toFixed(1)} km/s`} />
-              <Stat label="MEAN DENSITY" value={`${(body.densityGcc ?? 0).toFixed(1)} g/cm³`} />
-              <Stat
-                label="ROCHE MARGIN"
-                value={`×${Math.round(body.rocheMargin ?? 0)} the limit`}
-                accent="#9be8a8"
-              />
-              <Stat label="ORBIT NO." value={body.orderLabel ?? "—"} />
-            </>
-          )}
-        </div>
-
-        {/* keplerian elements */}
-        {!isStar && (
-          <div className="mt-4 border border-white/8 bg-white/[0.015] p-3">
-            <p className="text-[8px] tracking-[0.28em] text-white/40">
-              KEPLERIAN ELEMENTS · OSCULATING
-            </p>
-            <div className="mt-2 grid grid-cols-3 gap-1.5">
-              <Elem sym="a" value={`${body.distanceAU.toFixed(3)}`} label="SEMI-MAJ. AXIS AU" accent={body.color} />
-              <Elem sym="e" value={`${(body.eccentricity ?? 0).toFixed(3)}`} label="ECCENTRICITY" accent={body.color} />
-              <Elem sym="P" value={body.periodLabel} label="ORBITAL PERIOD" accent={body.color} />
-              <Elem sym="q" value={`${(body.periapsisAU ?? 0).toFixed(3)}`} label="PERIAPSIS AU" accent="#ffd28a" />
-              <Elem sym="Q" value={`${(body.apoapsisAU ?? 0).toFixed(3)}`} label="APOAPSIS AU" accent="#a8c6ff" />
-              <Elem sym="i" value={`${(body.inclinationDeg ?? 0).toFixed(1)}°`} label="INCLINATION" accent={body.color} />
-              <Elem sym="Ω" value={`${(body.lonAscNodeDeg ?? 0).toFixed(1)}°`} label="ASC. NODE LONG." accent={body.color} />
-              <Elem sym="ω" value={`${(body.argPeriDeg ?? 0).toFixed(1)}°`} label="ARG. PERIHELION" accent={body.color} />
-              <Elem sym="M₀" value={`${body.startAngle}°`} label="ANOMALY AT EPOCH" accent={body.color} />
             </div>
-          </div>
-        )}
-
-        {/* comparison meters */}
-        <div className="mt-4 space-y-3 border-t border-white/8 pt-4">
-          {isStar ? (
-            <>
+            <div className="mt-4 space-y-3 border-t border-white/8 pt-4">
               <Meter label="STELLAR MASS · SUN = 1" value={`${(body.massSolar ?? 1).toFixed(2)}×`} frac={(body.massSolar ?? 1) / 3} color={body.color} />
               <Meter label="LUMINOSITY · LOG SCALE" value={`${(body.luminositySolar ?? 1).toFixed(2)} L☉`} frac={Math.log10(1 + (body.luminositySolar ?? 1)) / 2} color={body.color} />
-              <Meter label="DIAMETER VS LARGEST KNOWN" value={`${(body.diameterKm / 1392700).toFixed(2)}× Sun`} frac={sizeFrac} color={body.color} />
-            </>
-          ) : (
-            <>
-              <Meter label="DIAMETER VS LARGEST KNOWN" value={`${(body.diameterKm / 139820).toFixed(2)}× Jupiter`} frac={sizeFrac} color={body.color} />
-              <Meter label="SEMI-MAJOR AXIS · √ SCALE" value={`${body.distanceAU.toFixed(2)} AU`} frac={distFrac} color={body.color} />
-              <Meter label="YEAR LENGTH · NEPTUNE = 1" value={body.periodLabel} frac={periodFrac} color={body.color} />
-              <Meter
-                label="ECCENTRICITY · e = 0.3 MAX"
-                value={`e = ${(body.eccentricity ?? 0).toFixed(3)}`}
-                frac={(body.eccentricity ?? 0) / 0.3}
-                color="#ffd28a"
-              />
+              <Meter label="DIAMETER VS SUN" value={`${(body.diameterKm / 1392700).toFixed(2)}× Sun`} frac={sizeFrac} color={body.color} />
+            </div>
+          </>
+        ) : (
+          /* ================= PLANET — two sections ================= */
+          <>
+            {/* ---------- 1 · ORBITAL CHARACTERISTICS ---------- */}
+            <SectionHead icon={<OrbitIcon />} title="ORBITAL CHARACTERISTICS" count={11} accent={body.color} />
+
+            {/* live ephemeris */}
+            <div className="mt-3 border border-white/8 bg-white/[0.02] px-3 py-2.5">
+              <div className="flex items-baseline justify-between">
+                <span className="text-[8px] tracking-[0.25em] text-white/40">LIVE EPHEMERIS · MEAN ANOMALY</span>
+                <span className="text-[11px] tabular-nums" style={{ color: body.colorSoft }}>
+                  {eph.M}° · {eph.clock}
+                </span>
+              </div>
+              <div className="mt-1.5 h-[3px] overflow-hidden bg-white/8">
+                <div
+                  className="h-full"
+                  style={{
+                    width: `${eph.pct}%`,
+                    background: body.color,
+                    boxShadow: `0 0 8px ${body.glow}`,
+                    transition: "width .12s linear",
+                  }}
+                />
+              </div>
+              <div className="mt-1.5 flex justify-between text-[9px] tabular-nums text-white/45">
+                <span>ν TRUE ANOM · {eph.nu}°</span>
+                <span>r = {eph.rAU} AU</span>
+              </div>
+            </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <Stat label="SEMI-MAJOR AXIS · a" value={`${body.distanceAU.toFixed(3)} AU`} sub={body.distanceLabel} accent={body.colorSoft} />
+              <Stat label="ECCENTRICITY · e" value={(body.eccentricity ?? 0).toFixed(4)} sub="0 = CIRCLE" />
+              <Stat label="PERIAPSIS · q" value={`${(body.periapsisAU ?? 0).toFixed(3)} AU`} sub={auKm(body.periapsisAU ?? 0)} />
+              <Stat label="APOAPSIS · Q" value={`${(body.apoapsisAU ?? 0).toFixed(3)} AU`} sub={auKm(body.apoapsisAU ?? 0)} />
+              <Stat label="ORBITAL PERIOD" value={body.periodLabel} sub={`${Math.round(body.periodDays).toLocaleString("en-US")} d`} />
+              <Stat label="INCLINATION · i" value={`${(body.inclinationDeg ?? 0).toFixed(2)}°`} sub="TO REF. PLANE" />
+              <Stat label="ASC. NODE · Ω" value={`${(body.lonAscNodeDeg ?? 0).toFixed(1)}°`} sub="LONG. OF ASC. NODE" />
+              <Stat label="ARG. PERIHELION · ω" value={`${(body.argPeriDeg ?? 0).toFixed(1)}°`} sub="FROM ASC. NODE" />
+            </div>
+
+            <div className="mt-4 space-y-3 border-t border-white/8 pt-4">
+              <Meter label="SEMI-MAJOR AXIS · √ SCALE" value={`${body.distanceAU.toFixed(2)} AU`} frac={Math.sqrt(body.distanceAU) / Math.sqrt(30)} color={body.color} />
+              <Meter label="YEAR LENGTH · NEPTUNE = 1" value={body.periodLabel} frac={Math.pow(body.periodDays / 60190, 0.35)} color={body.color} />
               <Meter
                 label="TIDAL SAFETY · DISRUPTION = 1"
-                value={`×${Math.round(body.rocheMargin ?? 0)}`}
+                value={`×${Math.round(body.rocheMargin ?? 0)} ROCHE`}
                 frac={Math.min(1, Math.log10(Math.max(1.5, body.rocheMargin ?? 1)) / 2.6)}
                 color="#ff8a7a"
               />
-            </>
-          )}
-        </div>
+            </div>
+
+            {/* ---------- 2 · PHYSICAL CHARACTERISTICS ---------- */}
+            <SectionHead icon={<BodyIcon />} title="PHYSICAL CHARACTERISTICS" count={20} accent={body.colorSoft} />
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <Stat label="MEAN RADIUS" value={fmtKm(body.meanRadiusKm ?? 0)} sub={`POLAR ${fmtKm(body.polarRadiusKm ?? 0)}`} accent={body.colorSoft} />
+              <Stat label="EQUATORIAL RADIUS" value={fmtKm(body.eqRadiusKm ?? 0)} sub="AT EQUATOR" />
+              <Stat label="FLATTENING" value={(body.flattening ?? 0).toFixed(5)} sub="f = (Re−Rp) / Re" />
+              <Stat label="CIRCUMFERENCE" value={fmtKm(body.circumferenceKm ?? 0)} sub="EQUATORIAL" />
+              <Stat label="SURFACE AREA" value={`${sci(body.surfaceAreaKm2 ?? 0)} km²`} sub={`${((body.surfaceAreaKm2 ?? 0) / 5.101e8).toFixed(2)}× EARTH`} />
+
+              <MassBlock body={body} />
+
+              <Stat label="VOLUME" value={`${sci(body.volumeKm3 ?? 0)} km³`} sub={`${((body.volumeKm3 ?? 0) / V_EARTH_KM3).toFixed(2)} V⊕`} />
+              <Stat label="MEAN DENSITY" value={`${(body.densityGcc ?? 0).toFixed(2)} g/cm³`} sub="WATER = 1.00" />
+              <Stat label="SURFACE GRAVITY" value={`${(body.surfaceGravity ?? 0).toFixed(2)} m/s²`} sub={`${((body.surfaceGravity ?? 0) / 9.807).toFixed(2)} g⊕`} />
+              <Stat label="MOMENT OF INERTIA" value={(body.moiFactor ?? 0).toFixed(4)} sub="C/MR² · SPHERE = 0.4" />
+              <Stat
+                label="SIDEREAL ROTATION"
+                value={body.locked ? "Locked" : `${(body.rotationHours ?? 0).toFixed(1)} h`}
+                sub={body.locked ? `SYNCHRONOUS · ${((body.rotationHours ?? 0) / 24).toFixed(1)} d` : "SIDEREAL DAY"}
+              />
+              <Stat
+                label="EQUAT. ROT. VELOCITY"
+                value={`${Math.round(((2 * Math.PI * (body.eqRadiusKm ?? 0)) / (body.rotationHours ?? 1))).toLocaleString("en-US")} km/h`}
+                sub="AT EQUATOR"
+              />
+              <Stat label="AXIAL TILT" value={`${(body.axialTiltDeg ?? 0).toFixed(1)}°`} sub="OBLIQUITY" />
+              <Stat label="ALBEDO · BOND" value={(body.albedo ?? 0).toFixed(2)} sub={`GEOMETRIC ${(body.geoAlbedo ?? 0).toFixed(2)}`} />
+              <Stat label="BLACKBODY TEMP" value={`${body.blackbodyK ?? 0} K`} sub="EQUILIBRIUM" />
+
+              <TempRow body={body} />
+
+              <Stat label="ABSOLUTE MAGNITUDE" value={(body.absoluteMag ?? 0).toFixed(2)} sub="V-BAND · H" accent={body.colorSoft} />
+              <Stat label="MOONS" value={body.moons} sub="CONFIRMED" />
+            </div>
+
+            <div className="mt-4 space-y-3 border-t border-white/8 pt-4">
+              <Meter label="DIAMETER VS LARGEST KNOWN" value={`${(body.diameterKm / 139820).toFixed(2)}× Jupiter`} frac={sizeFrac} color={body.color} />
+              <Meter label="SURFACE GRAVITY · EARTH = 1" value={`${((body.surfaceGravity ?? 0) / 9.807).toFixed(2)} g`} frac={Math.min(1, (body.surfaceGravity ?? 0) / 9.807 / 3)} color={body.color} />
+              <Meter label="MEAN DENSITY · WATER = 1" value={`${(body.densityGcc ?? 0).toFixed(2)} g/cm³`} frac={Math.min(1, (body.densityGcc ?? 0) / 6)} color={body.color} />
+            </div>
+          </>
+        )}
 
         {/* field note */}
-        <div className="mt-4 border-l-2 py-1 pl-3" style={{ borderColor: body.color }}>
+        <div className="mt-5 border-l-2 py-1 pl-3" style={{ borderColor: body.color }}>
           <p className="text-[9px] tracking-[0.25em] text-white/40">FIELD NOTE</p>
           <p className="mt-1.5 text-[12px] leading-relaxed text-white/75">{body.fact}</p>
         </div>
 
         <p className="mt-4 text-[8px] leading-relaxed tracking-[0.2em] text-white/25">
-          MOTION SOLVES KEPLER'S EQUATION M = E − e·sinE · P² = a³/M★ · PERIAPSES
-          CLEAR THE ROCHE LIMIT d = 2.44·R★·(ρ★/ρp)^⅓ BY ≥3×
+          KEPLER III · P² = a³/M★ · T★ FROM L★ &amp; ALBEDO · POSITIONS SOLVED VIA M→E→ν ·
+          ALL PERIAPSES CLEAR THE ROCHE LIMIT d = 2.44·R★·(ρ★/ρp)^⅓ BY ≥3×
         </p>
       </div>
     </aside>

@@ -50,6 +50,30 @@ export interface Body {
   argPeriDeg?: number; // ω — argument of perihelion
   periapsisAU?: number; // q = a(1−e)
   apoapsisAU?: number; // Q = a(1+e)
+  /* physical characteristics */
+  meanRadiusKm?: number;
+  eqRadiusKm?: number;
+  polarRadiusKm?: number;
+  flattening?: number; // f = (Re−Rp)/Re
+  circumferenceKm?: number;
+  surfaceAreaKm2?: number;
+  volumeKm3?: number;
+  massKg?: number;
+  solidMassKg?: number;
+  liquidMassKg?: number;
+  gasMassKg?: number;
+  surfaceGravity?: number; // m/s²
+  moiFactor?: number; // moment of inertia factor C/MR²
+  rotationHours?: number; // sidereal
+  locked?: boolean; // tidally locked to the star
+  axialTiltDeg?: number; // obliquity
+  albedo?: number; // Bond albedo
+  geoAlbedo?: number; // geometric albedo (for magnitude)
+  blackbodyK?: number; // equilibrium / blackbody temperature
+  surfTempMinC?: number;
+  surfTempMeanC?: number;
+  surfTempMaxC?: number;
+  absoluteMag?: number; // V-band planetary absolute magnitude H
 }
 
 export interface StarSystem {
@@ -85,6 +109,37 @@ const DENSITIES: Record<string, number> = {
   "Gas Giant": 1.1,
   "Ice Giant": 1.6,
 };
+
+/* ---------------- physical profiles per archetype ---------------- */
+/* flat: oblateness range · moi: moment-of-inertia factor C/MR² ·
+   alb: Bond albedo · ghg: greenhouse multiplier over blackbody temp ·
+   spread: ± °C surface swing · solid/liquid/gas: mass fractions      */
+interface PhysProfile {
+  flat: [number, number];
+  moi: [number, number];
+  alb: [number, number];
+  ghg: [number, number];
+  spread: [number, number];
+  solid: [number, number];
+  liquid: [number, number];
+  gas: [number, number];
+}
+
+const PHYS: Record<string, PhysProfile> = {
+  "Lava World":  { flat: [0.0005, 0.003], moi: [0.31, 0.36], alb: [0.05, 0.15], ghg: [1.0, 1.15], spread: [90, 170], solid: [0.97, 1.0], liquid: [0.0, 0.01], gas: [0.0, 0.02] },
+  "Rocky World": { flat: [0.001, 0.006],  moi: [0.30, 0.355], alb: [0.1, 0.3],  ghg: [1.0, 1.25], spread: [55, 130], solid: [0.95, 1.0], liquid: [0.0, 0.02], gas: [0.0, 0.03] },
+  "Desert World":{ flat: [0.002, 0.007],  moi: [0.30, 0.35],  alb: [0.25, 0.4], ghg: [1.1, 1.5],  spread: [40, 110], solid: [0.9, 1.0],  liquid: [0.0, 0.02], gas: [0.0, 0.1] },
+  "Ocean World": { flat: [0.002, 0.008],  moi: [0.31, 0.345], alb: [0.25, 0.45],ghg: [1.15, 1.5], spread: [10, 30],  solid: [0.55, 0.7], liquid: [0.3, 0.45], gas: [0.0, 0.02] },
+  "Super-Earth": { flat: [0.001, 0.005],  moi: [0.29, 0.34],  alb: [0.2, 0.4],  ghg: [1.2, 1.6],  spread: [15, 45],  solid: [0.85, 0.97],liquid: [0.03, 0.15], gas: [0.0, 0.03] },
+  "Ice World":   { flat: [0.001, 0.004],  moi: [0.32, 0.36],  alb: [0.5, 0.8],  ghg: [1.0, 1.1],  spread: [20, 60],  solid: [0.8, 0.95], liquid: [0.05, 0.2], gas: [0.0, 0.02] },
+  "Gas Giant":   { flat: [0.05, 0.11],    moi: [0.24, 0.27],  alb: [0.3, 0.55], ghg: [0.85, 0.95],spread: [8, 25],   solid: [0.02, 0.12],liquid: [0.15, 0.4], gas: [0.5, 0.8] },
+  "Ice Giant":   { flat: [0.02, 0.035],   moi: [0.27, 0.30],  alb: [0.3, 0.5],  ghg: [0.85, 0.95],spread: [8, 22],   solid: [0.05, 0.15],liquid: [0.5, 0.7],  gas: [0.15, 0.3] },
+};
+
+/* reference values */
+const M_EARTH_KG = 5.972e24;
+const R_EARTH_KM = 6371;
+const V_EARTH_KM3 = 1.08321e12;
 
 export function fmtSim(days: number): string {
   const y = Math.floor(days / 365.25);
@@ -378,11 +433,59 @@ export function generateSystem(seed: number): StarSystem {
     const peri = a * (1 - ecc);
     const apo = a * (1 + ecc);
 
-    let teq = (279 * Math.pow(luminositySolar, 0.25)) / Math.sqrt(a);
-    if (["Ocean World", "Super-Earth", "Rocky World"].includes(type)) teq *= rand(1.0, 1.35);
-    if (type === "Lava World") teq = Math.max(teq, rand(900, 1500));
-    if (giant) teq *= 0.9;
-    const tempC = Math.round(teq - 273);
+    /* ---------- physical characteristics ---------- */
+    const prof = PHYS[type];
+    const eqR = diameterKm / 2;
+    const locked = !giant && a < snowLine && chance(0.22);
+
+    /* shape: rotation-driven oblateness, relaxed toward spherical when locked */
+    let flattening = rand(prof.flat[0], prof.flat[1]);
+    if (locked) flattening *= 0.25;
+    const polarR = eqR * (1 - flattening);
+    const meanR = eqR * (1 - flattening / 3);
+    const circumferenceKm = 2 * Math.PI * eqR;
+    const surfaceAreaKm2 = 4 * Math.PI * meanR * meanR;
+    const volumeKm3 = (4 / 3) * Math.PI * meanR * meanR * meanR;
+
+    /* mass budget: bulk density × volume, partitioned by archetype */
+    const massKg = densityGcc * volumeKm3 * 1e12;
+    const solidF = rand(prof.solid[0], prof.solid[1]);
+    const liquidF = rand(prof.liquid[0], prof.liquid[1]);
+    const gasF = Math.max(0, 1 - solidF - liquidF);
+    const solidMassKg = massKg * solidF;
+    const liquidMassKg = massKg * liquidF;
+    const gasMassKg = massKg * gasF;
+
+    const surfaceGravity =
+      (9.807 * (massKg / M_EARTH_KG)) / Math.pow(meanR / R_EARTH_KM, 2);
+    const moiFactor = rand(prof.moi[0], prof.moi[1]);
+
+    /* spin: synchronous when locked, otherwise a free sidereal period */
+    const rotationHours = locked ? periodDays * 24 : rand(7, 58);
+    const axialTiltDeg = chance(0.07)
+      ? rand(60, 118)
+      : locked
+        ? rand(0, 15)
+        : rand(0.5, 35);
+    const eqRotKmS = (2 * Math.PI * eqR) / (rotationHours * 3600);
+
+    /* radiative balance: blackbody temp from stellar luminosity + Bond
+       albedo, then a greenhouse lift (or compression) per archetype */
+    const albedo = rand(prof.alb[0], prof.alb[1]);
+    const geoAlbedo = Math.min(0.9, albedo * 1.4);
+    const blackbodyK =
+      (278.6 * Math.pow(luminositySolar, 0.25) * Math.pow(1 - albedo, 0.25)) /
+      Math.sqrt(a);
+    let surfMeanK = blackbodyK * rand(prof.ghg[0], prof.ghg[1]);
+    if (type === "Lava World") surfMeanK = Math.max(surfMeanK, rand(900, 1500));
+    const surfTempMeanC = surfMeanK - 273;
+    const spread = rand(prof.spread[0], prof.spread[1]);
+    const surfTempMinC = Math.max(-268, surfTempMeanC - spread);
+    const surfTempMaxC = surfTempMeanC + spread * 1.2;
+    const tempC = Math.round(surfTempMeanC);
+
+    /* planetary absolute magnitude (V-band): standard small-body relation */
+    const absoluteMag = 5 * Math.log10(1329 / (diameterKm * Math.sqrt(geoAlbedo)));
 
     const kmM = a * 149.6;
     const distanceLabel = `${
@@ -400,10 +503,9 @@ export function generateSystem(seed: number): StarSystem {
     else if (type === "Super-Earth") moons = String(int(0, 3));
     else moons = String(int(0, 2));
 
-    const dayLength =
-      chance(0.22) && !giant && a < snowLine
-        ? "Tidally locked"
-        : `${rand(7, 58).toFixed(1)} h`;
+    const dayLength = locked
+      ? "Tidally locked"
+      : `${rotationHours.toFixed(1)} h`;
 
     planets.push({
       id: `p${i}`,
@@ -439,6 +541,29 @@ export function generateSystem(seed: number): StarSystem {
       argPeriDeg: Number(argPeri.toFixed(1)),
       periapsisAU: Number(peri.toFixed(4)),
       apoapsisAU: Number(apo.toFixed(4)),
+      meanRadiusKm: meanR,
+      eqRadiusKm: eqR,
+      polarRadiusKm: polarR,
+      flattening: Number(flattening.toFixed(5)),
+      circumferenceKm,
+      surfaceAreaKm2,
+      volumeKm3,
+      massKg,
+      solidMassKg,
+      liquidMassKg,
+      gasMassKg,
+      surfaceGravity,
+      moiFactor: Number(moiFactor.toFixed(4)),
+      rotationHours,
+      locked,
+      axialTiltDeg: Number(axialTiltDeg.toFixed(1)),
+      albedo: Number(albedo.toFixed(3)),
+      geoAlbedo: Number(geoAlbedo.toFixed(3)),
+      blackbodyK: Math.round(blackbodyK),
+      surfTempMinC: Math.round(surfTempMinC),
+      surfTempMeanC: Math.round(surfTempMeanC),
+      surfTempMaxC: Math.round(surfTempMaxC),
+      absoluteMag: Number(absoluteMag.toFixed(2)),
     });
   }
 
