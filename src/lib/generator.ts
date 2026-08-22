@@ -76,6 +76,10 @@ export interface Body {
   absoluteMag?: number; // V-band planetary absolute magnitude H
   /* atmosphere */
   atmosphere?: Atmosphere;
+  /* formation history */
+  massEarth?: number;
+  formedBy?: string; // "CORE ACCRETION" | "DISK INSTABILITY"
+  chthonian?: boolean;
 }
 
 export interface StarSystem {
@@ -91,10 +95,25 @@ export interface StarSystem {
   maxAU: number;
   /** system-wide fluid Roche limit (AU) — no orbit may cross inside it */
   rocheAU: number;
+  /** formation history — the parent cloud and the protoplanetary disk */
+  nebula?: { cloudMass: number; feh: number; spin: number };
+  disk?: { massEarth: number; lifetimeMyr: number; mode: string };
 }
 
 /* the rate multiplier IS the rate: 1× = 1 simulated day per real second */
 export const SPEED_OPTIONS = [0.5, 1, 2, 5, 10, 50];
+
+/** the eight stages of system formation, in order (drives the loading UI) */
+export const PIPELINE_PHASES = [
+  "COLLAPSING PARENT NEBULA",
+  "IGNITING STAR · FORMING DISK",
+  "TIME CHECK · FORMATION MODE",
+  "DISTRIBUTING EMBRYOS · ACCRETION",
+  "CLASSIFYING BY FROST LINE",
+  "MIGRATION · RESONANCE · STABILITY",
+  "ATMOSPHERES · STELLAR STRIPPING",
+  "N-BODY VALIDATION",
+];
 
 /** 1 solar radius, in AU */
 export const SUN_RADIUS_AU = 0.00465047;
@@ -112,6 +131,7 @@ const DENSITIES: Record<string, number> = {
   "Ice World": 1.8,
   "Gas Giant": 1.1,
   "Ice Giant": 1.6,
+  "Chthonian World": 5.4, // bare iron–silicate core of a stripped giant
 };
 
 /* ---------------- physical profiles per archetype ---------------- */
@@ -138,6 +158,7 @@ const PHYS: Record<string, PhysProfile> = {
   "Ice World":   { flat: [0.001, 0.004],  moi: [0.32, 0.36],  alb: [0.5, 0.8],  ghg: [1.0, 1.1],  spread: [20, 60],  solid: [0.8, 0.95], liquid: [0.05, 0.2], gas: [0.0, 0.02] },
   "Gas Giant":   { flat: [0.05, 0.11],    moi: [0.24, 0.27],  alb: [0.3, 0.55], ghg: [0.85, 0.95],spread: [8, 25],   solid: [0.02, 0.12],liquid: [0.15, 0.4], gas: [0.5, 0.8] },
   "Ice Giant":   { flat: [0.02, 0.035],   moi: [0.27, 0.30],  alb: [0.3, 0.5],  ghg: [0.85, 0.95],spread: [8, 22],   solid: [0.05, 0.15],liquid: [0.5, 0.7],  gas: [0.15, 0.3] },
+  "Chthonian World": { flat: [0.0005, 0.002], moi: [0.30, 0.34], alb: [0.04, 0.12], ghg: [1.0, 1.06], spread: [140, 300], solid: [0.995, 1.0], liquid: [0.0, 0.004], gas: [0.0, 0.008] },
 };
 
 /* reference values */
@@ -523,6 +544,10 @@ const PALETTES: Record<string, Palette[]> = {
     { soft: "#cdf2f3", base: "#7fd4d9", dark: "#2b767d", glow: "rgba(130,215,220,0.4)" },
     { soft: "#a4b8ff", base: "#4f6fe8", dark: "#1b2c80", glow: "rgba(100,130,255,0.45)" },
   ],
+  "Chthonian World": [
+    { soft: "#d6d9de", base: "#8d939e", dark: "#33373f", glow: "rgba(150,160,175,0.35)" },
+    { soft: "#e0d8cc", base: "#9a8f7e", dark: "#3d352c", glow: "rgba(160,150,130,0.35)" },
+  ],
 };
 
 /* ---------------- field notes ---------------- */
@@ -559,6 +584,10 @@ const FACTS: Record<string, string[]> = {
   "Ice Giant": [
     "{n} glows a cold blue from methane in its upper clouds; beneath them lies a slushy mantle of water, ammonia and methane ices.",
     "Seasons on {n} last decades — each pole tilts into long darkness, then into a slow, strange summer of glowing aurorae.",
+  ],
+  "Chthonian World": [
+    "{n} is the exposed core of a giant planet — the star's ultraviolet storm boiled away its hydrogen envelope, leaving a scorched iron world that still orbits like a ghost of what it was.",
+    "Once a puffed-up gas giant, {n} was stripped to its bare rocky heart by stellar X-rays; its density betrays a metallic core larger than Earth's entire planet.",
   ],
 };
 
@@ -601,9 +630,14 @@ const SPECTRA: SpectralClass[] = [
     fact: "{n} spins so fast its equator bulges visibly; its fierce ultraviolet output sculpts the magnetospheres of every world nearby.",
   },
   {
-    code: "B", name: "Blue-White Star", w: 0.07, mass: [2.0, 2.6], tempK: [9500, 14000],
+    code: "B", name: "Blue Giant", w: 0.05, mass: [2.0, 16.0], tempK: [10000, 28000],
     pal: { soft: "#f2f7ff", base: "#a8c4ff", dark: "#3a56a8", glow: "rgba(150,180,255,0.6)" },
     fact: "A brilliant blue giant, {n} outshines the Sun a thousandfold — and will live fast, dying young as a supernova seed for the next stellar generation.",
+  },
+  {
+    code: "O", name: "Blue Supergiant", w: 0.02, mass: [16.0, 24.0], tempK: [28000, 42000],
+    pal: { soft: "#eef2ff", base: "#8fa8ff", dark: "#2c3d94", glow: "rgba(130,160,255,0.65)" },
+    fact: "A rare O-type monster: {n} pours out so much ultraviolet light that it photo-evaporates its own protoplanetary disk in under a million years.",
   },
 ];
 
@@ -616,22 +650,36 @@ export function generateSystem(seed: number): StarSystem {
   const pick = <T,>(arr: T[]): T => arr[Math.floor(rnd() * arr.length)];
   const chance = (p: number) => rnd() < p;
 
-  /* --- star --- */
-  const totalW = SPECTRA.reduce((s, c) => s + c.w, 0);
-  let roll = rnd() * totalW;
-  let spec = SPECTRA[0];
+  /* ============ STEP 1 · PARENT NEBULA ============
+     Everything begins in a cold molecular-cloud core: its mass sets how
+     much star + disk can form, its metallicity sets how much rock/ice is
+     available, its angular momentum sets how wide the disk will be. */
+  const cloudMass = 2 + 130 * Math.pow(rnd(), 6.5); // M☉, IMF-like: small cores common
+  const feh = rand(-1.6, 0.5); // [Fe/H] in dex
+  const zRatio = Math.pow(10, feh); // metals relative to solar
+  const spin = rand(0.75, 1.5); // angular-momentum factor → disk size
+
+  /* ============ STEP 2 · STAR + PROTOPLANETARY DISK ============
+     Star formation is inefficient — only ~25–45% of the core collapses
+     into the star; the leftover feeds the disk. */
+  const sfe = rand(0.25, 0.45);
+  const massSolar = clamp(cloudMass * sfe, 0.2, 24);
+  let spec = SPECTRA[SPECTRA.length - 1];
   for (const c of SPECTRA) {
-    roll -= c.w;
-    if (roll <= 0) {
+    if (massSolar <= c.mass[1]) {
       spec = c;
       break;
     }
   }
-
-  const massSolar = rand(spec.mass[0], spec.mass[1]);
   const luminositySolar = Math.pow(massSolar, 3.5);
+  const leftover = cloudMass - massSolar; // M☉ that never made it into the star
+  const diskMassEarth = leftover * rand(0.002, 0.015) * 333000; // → M⊕
+  /* Disk lifetime shrinks with stellar mass: photo-evaporation by UV/X-rays.
+     M-dwarfs keep their disks ~10 Myr, sun-like stars 3–5, O/B giants < 1. */
+  const diskLifetimeMyr = clamp(9 * Math.pow(0.4 / massSolar, 1.1), 0.3, 12);
+  const tMsGyr = 10 * Math.pow(massSolar, -2.5); // main-sequence lifespan
   const starRotH = rand(6, 420); // sidereal rotation, hours
-  const ageGyr = rand(0.2, 10.5); // system age — argon accumulates with it
+  const ageGyr = rand(0.2, Math.min(10.5, Math.max(0.3, tMsGyr * 0.8)));
   const radiusSolar = Math.pow(massSolar, 0.85); // main-sequence mass–radius relation
   const rhoStar = (1.408 * massSolar) / Math.pow(radiusSolar, 3); // mean density, g/cm³
   /* Fluid Roche limit d = 2.44 · R★ · (ρ★/ρp)^⅓ for the fluffiest plausible
@@ -677,69 +725,171 @@ export function generateSystem(seed: number): StarSystem {
     ageLabel: `≈${ageGyr.toFixed(1)} Gyr`,
   };
 
-  /* --- planets --- */
-  const n = int(3, 9);
+  /* ============ STEP 3 · TIME CHECK & FORMATION MODE ============
+     O/B blue giants photo-evaporate their disks in < 1 Myr — far too fast
+     for dust to grind into rocky cores (core accretion needs ~1–10 Myr).
+     Around them, only gravitational disk instability can build worlds, and
+     only gas giants at wide separations. */
+  const isOB = spec.code === "O" || spec.code === "B";
+  const rockyAllowed = !isOB;
+  const giantsAllowed = diskLifetimeMyr > 2.2;
+  const iceGiantsAllowed = diskLifetimeMyr > 1.2;
+  const mode = isOB ? "DISK INSTABILITY" : "CORE ACCRETION";
+
+  /* ============ STEP 4 · EMBRYOS & ACCRETION (mass-budgeted) ============
+     Disk solids condense into embryos; more metals → more rocky embryos.
+     Every world's mass is drawn against a strict budget carved from the
+     disk — you cannot get ten Jupiters from a disk that held two. */
   const snowLine = 2.7 * Math.sqrt(luminositySolar);
-  const planets: Body[] = [];
-  /* floor the innermost orbit: readable motion AND ≥ 3× outside the Roche
-     limit, where no self-gravitating world could survive the star's tides */
+  const snowZone = Math.min(snowLine, 45); // classification reference
+  const budgetEarth = diskMassEarth * rand(0.15, 0.5);
+
   const aMin = Math.cbrt(0.003 * massSolar);
-  const aFloor = Math.max(aMin, 3 * rocheFluid);
-  let aNext = Math.max(rand(0.12, 0.38) * Math.sqrt(luminositySolar), aFloor);
+  const aFloor = Math.max(aMin, 3 * rocheFluid); // Roche-safe inner edge
 
-  /* lay out all semi-major axes first, then compress wide systems proportionally */
-  const orbits: number[] = [];
-  for (let i = 0; i < n; i++) {
-    orbits.push(aNext);
-    aNext *= rand(1.35, 1.9);
+  let n = isOB ? int(1, 4) : int(3, 9);
+  if (!isOB && zRatio < 0.3) n = Math.max(2, n - int(1, 3)); // metal-poor: fewer worlds
+  const giantBias = clamp(zRatio, 0.15, 1.6) * (giantsAllowed ? 1 : 0);
+
+  interface Proto {
+    a: number;
+    type: string;
+    m: number; // M⊕
   }
-  /* compact systems, like the real Kepler/TRAPPIST population: the outer
-     edge sits ~3 snow lines out, capped so the chart stays legible */
-  const outerCap = Math.min(26, Math.max(4, 3 * snowLine));
-  const rawMax = orbits[n - 1];
-  let scale = rawMax > outerCap ? outerCap / rawMax : 1;
-  /* compression may never drag the inner world back inside the Roche-safe floor */
-  scale = Math.max(scale, aFloor / orbits[0]);
+  const protos: Proto[] = [];
+  let spent = 0;
 
-  const aAll = orbits.map((o) => o * scale);
+  let aNext = isOB
+    ? rand(22, 55) * spin // instability operates far out, where the disk is cold
+    : Math.max(rand(0.12, 0.38) * Math.sqrt(luminositySolar), aFloor);
+  const spacing: [number, number] = isOB ? [1.6, 2.4] : [1.35, 1.9];
 
-  /* eccentricities: biased low like real planets, clamped against the Roche
-     limit, then mutually trimmed so neighbouring apsidal corridors never
-     cross — peri(i+1) always exceeds apo(i) by a clear margin */
-  const eccAll = aAll.map((a) => {
-    let e = 0.02 + 0.28 * Math.pow(rnd(), 1.5);
-    return Math.min(e, Math.max(0, 1 - (3 * rocheFluid) / a - 1e-4));
-  });
-  for (let i = 0; i < n - 1; i++) {
-    const margin = 0.06 * aAll[i];
-    const need = aAll[i] * (1 + eccAll[i]) + margin;
-    if (aAll[i + 1] * (1 - eccAll[i + 1]) < need) {
-      eccAll[i + 1] = 1 - need / aAll[i + 1];
-      if (eccAll[i + 1] < 0) {
-        eccAll[i + 1] = 0;
-        eccAll[i] = Math.max(0, (aAll[i + 1] - margin) / aAll[i] - 1);
+  for (let i = 0; i < n; i++) {
+    /* ============ STEP 5 · CLASSIFICATION BY FROST LINE ============ */
+    let type = "";
+    let m = 0;
+    if (isOB) {
+      type = "Gas Giant"; // disk instability: only self-gravitating gas clumps
+      m = rand(180, 1300);
+    } else if (aNext < snowZone * 0.55) {
+      if (zRatio < 0.35 && chance(0.45)) {
+        m = 0; // metal-poor disks skip some rocky embryos
+      } else {
+        type = pick(["Lava World", "Lava World", "Rocky World", "Rocky World", "Rocky World", "Desert World", "Desert World"]);
+        m = rand(0.05, 2.5);
+      }
+    } else if (aNext < snowZone * 1.6) {
+      type = pick(
+        zRatio > 0.6
+          ? ["Ocean World", "Ocean World", "Super-Earth", "Super-Earth", "Rocky World", "Desert World"]
+          : ["Super-Earth", "Rocky World", "Desert World", "Desert World"]
+      );
+      m = type === "Super-Earth" ? rand(2, 12) : rand(0.4, 6);
+    } else {
+      const rollG = rnd();
+      if (giantsAllowed && rollG < 0.42 * giantBias) {
+        type = "Gas Giant";
+        m = rand(60, 900);
+      } else if (iceGiantsAllowed && rollG < 0.75) {
+        type = "Ice Giant";
+        m = rand(9, 60);
+      } else {
+        type = pick(["Ice World", "Ice World", "Super-Earth"]);
+        m = type === "Ice World" ? rand(0.02, 1.8) : rand(1.5, 9);
+      }
+    }
+
+    /* strict budget adherence — trim or abandon the embryo */
+    const remaining = budgetEarth - spent;
+    if (m > 0 && type) {
+      if (m > remaining) m = remaining * rand(0.5, 0.9);
+      if (m < 0.02 || remaining <= 0) {
+        m = 0;
+      } else {
+        spent += m;
+        protos.push({ a: aNext, type, m });
+      }
+    }
+    aNext *= rand(spacing[0], spacing[1]);
+  }
+
+  /* ============ STEP 6 · MIGRATION, RESONANCES & STABILITY ============ */
+  /* Type-II giants drift inward through the gas disk; rocky worlds barely move */
+  for (const p of protos) {
+    if (p.type === "Gas Giant") p.a *= rand(0.5, 0.92);
+    else if (p.type === "Ice Giant") p.a *= rand(0.7, 1.0);
+    else p.a *= rand(0.85, 1.02);
+    p.a = Math.max(p.a, aFloor); // never inside the Roche-safe edge
+  }
+  protos.sort((x, y) => x.a - y.a);
+
+  /* mean-motion resonances: snap near-rational period ratios to exact locks */
+  for (let i = 0; i < protos.length - 1; i++) {
+    const r = protos[i + 1].a / protos[i].a;
+    for (const c of [1.5, 1.667, 2.0, 2.5]) {
+      if (Math.abs(r - c) / c < 0.05 && chance(0.55)) {
+        protos[i + 1].a = protos[i].a * c;
+        break;
       }
     }
   }
 
-  for (let i = 0; i < n; i++) {
-    const a = aAll[i];
-    let type: string;
-    if (a < snowLine * 0.55) {
-      type = pick(["Lava World", "Lava World", "Rocky World", "Rocky World", "Rocky World", "Desert World", "Desert World"]);
-    } else if (a < snowLine * 1.6) {
-      type = pick(["Ocean World", "Ocean World", "Super-Earth", "Super-Earth", "Rocky World", "Desert World"]);
-    } else {
-      type = pick(["Gas Giant", "Gas Giant", "Ice Giant", "Ice Giant", "Ice World", "Ice World", "Ice World"]);
+  /* eccentricities: biased low, clamped ≥ 3× the Roche limit, then mutually
+     trimmed so neighbouring apsidal corridors never cross */
+  const eccAll = protos.map((p) => {
+    const e = 0.02 + 0.28 * Math.pow(rnd(), 1.5);
+    return Math.min(e, Math.max(0, 1 - (3 * rocheFluid) / p.a - 1e-4));
+  });
+  for (let i = 0; i < protos.length - 1; i++) {
+    const margin = 0.06 * protos[i].a;
+    const need = protos[i].a * (1 + eccAll[i]) + margin;
+    if (protos[i + 1].a * (1 - eccAll[i + 1]) < need) {
+      eccAll[i + 1] = 1 - need / protos[i + 1].a;
+      if (eccAll[i + 1] < 0) {
+        eccAll[i + 1] = 0;
+        eccAll[i] = Math.max(0, (protos[i + 1].a - margin) / protos[i].a - 1);
+      }
     }
+  }
 
+  /* Hill-stability pass: neighbours closer than ~3.5 mutual Hill radii are
+     unstable over 1 Gyr — the outer world is scattered and ejected */
+  const stable: Proto[] = [];
+  const stableEcc: number[] = [];
+  protos.forEach((p, idx) => {
+    const prev = stable[stable.length - 1];
+    if (prev) {
+      const rHill =
+        prev.a *
+        Math.cbrt((prev.m + p.m) / (3 * massSolar * 333000));
+      if (p.a - prev.a < 3.5 * rHill) return; // ejected from the system
+    }
+    stable.push(p);
+    stableEcc.push(eccAll[idx]);
+  });
+  while (stable.length === 0 && protos.length > 0) {
+    /* pathological case: keep the single most massive embryo */
+    const heaviest = protos.reduce((b, p) => (p.m > b.m ? p : b), protos[0]);
+    stable.push(heaviest);
+    stableEcc.push(0.02);
+    break;
+  }
+
+  const aAll = stable.map((p) => p.a);
+  const planets: Body[] = [];
+
+  /* ============ STEP 7 · WORLDS TAKE SHAPE ============
+     Each surviving embryo is fleshed out with full physics; atmospheres
+     are added here and stellar stripping applied right after the loop. */
+  for (let i = 0; i < stable.length; i++) {
+    const a = stable[i].a;
+    const type = stable[i].type;
+    const protoMass = stable[i].m; // M⊕ drawn from the disk budget
     const giant = type === "Gas Giant" || type === "Ice Giant";
-    let diameterKm: number;
-    if (type === "Gas Giant") diameterKm = int(60000, 160000);
-    else if (type === "Ice Giant") diameterKm = int(38000, 60000);
-    else if (type === "Super-Earth") diameterKm = int(13000, 24000);
-    else if (type === "Ocean World") diameterKm = int(8000, 18000);
-    else diameterKm = int(4800, 13000);
+    /* diameter from mass × bulk density — mass-conserving with the budget */
+    const vol0 = (protoMass * 5.972e12) / DENSITIES[type];
+    let diameterKm = Math.round(2 * Math.cbrt((3 * vol0) / (4 * Math.PI)));
+    diameterKm = clamp(diameterKm, 3200, 200000);
 
     const letter = String.fromCharCode(98 + i);
     const name = `${genName} ${letter}`;
@@ -758,7 +908,7 @@ export function generateSystem(seed: number): StarSystem {
     /* Keplerian elements: e comes from the mutually-cleared table above
        (periapsis stays ≥ 3× the Roche limit; apsidal corridors never
        overlap); i, Ω and ω are free orientations. */
-    const ecc = eccAll[i];
+    const ecc = stableEcc[i];
     const incl = 18 * Math.pow(rnd(), 2);
     const lonAsc = rnd() * 360;
     const argPeri = rnd() * 360;
@@ -880,10 +1030,12 @@ export function generateSystem(seed: number): StarSystem {
       startAngle: int(0, 359),
       bands: giant || atmosphere.bandAmt > 0,
       rings: (giant && chance(0.38)) || (type === "Ice World" && chance(0.1)),
-      orderLabel: `${i + 1} of ${n}`,
+      orderLabel: `${i + 1} of ${stable.length}`,
       densityGcc,
       rocheAU,
       rocheMargin,
+      massEarth: protoMass,
+      formedBy: mode,
       eccentricity: Number(ecc.toFixed(4)),
       inclinationDeg: Number(incl.toFixed(2)),
       lonAscNodeDeg: Number(lonAsc.toFixed(1)),
@@ -917,19 +1069,122 @@ export function generateSystem(seed: number): StarSystem {
     });
   }
 
-  star.worlds = n;
-  const maxAU = planets[planets.length - 1].distanceAU;
+  /* ---- stellar stripping: XUV photo-evaporation of close-in air ----
+     Young massive stars (and flaring M-dwarfs) batter inner worlds with
+     X-ray/UV flux ∝ 1/a²; weak gravity can't hold on. Close-in giants can
+     lose their entire envelope, becoming chthonian (exposed-core) worlds. */
+  const activity = isOB
+    ? rand(1.5, 3)
+    : spec.code === "M" && chance(0.35)
+      ? rand(1.2, 2)
+      : rand(0.25, 0.6);
+  for (const p of planets) {
+    const g0 = Math.max(0.25, (p.surfaceGravity ?? 9.8) / 9.807);
+    const E = (activity * 2.2) / (p.distanceAU * p.distanceAU * g0);
+    if (E > 1.6 && p.atmosphere) {
+      p.atmosphere.pressureBar *= 0.02;
+      p.atmosphere.hazeAmt *= 0.4;
+      p.atmosphere.note = "STRIPPED BY STELLAR XUV";
+    }
+    const wasGiant = p.type === "Gas Giant" || p.type === "Ice Giant";
+    if (wasGiant && E > 3.0 && (p.massEarth ?? 0) < 500) {
+      /* envelope lost — only the rocky core survives */
+      const coreM = (p.massEarth ?? 20) * rand(0.06, 0.18);
+      const coreVol = (coreM * 5.972e12) / 5.4;
+      const coreR = Math.cbrt((3 * coreVol) / (4 * Math.PI));
+      const massKg = coreM * M_EARTH_KG;
+      const surfaceGravity = (9.807 * coreM) / Math.pow(coreR / R_EARTH_KM, 2);
+      const atmosphere = buildAtmosphere(
+        {
+          type: "Chthonian World",
+          surfTempMeanC: p.surfTempMeanC ?? 0,
+          blackbodyK: p.blackbodyK ?? 300,
+          surfaceGravity,
+          massKg,
+          meanRadiusKm: coreR,
+          rotationHours: p.rotationHours ?? 24,
+          axialTiltDeg: p.axialTiltDeg ?? 5,
+          locked: p.locked ?? false,
+        },
+        ageGyr,
+        { rand, chance }
+      );
+      const pal = pick(PALETTES["Chthonian World"]);
+      Object.assign(p, {
+        type: "Chthonian World",
+        chthonian: true,
+        color: pal.base,
+        colorSoft: pal.soft,
+        colorDark: pal.dark,
+        glow: pal.glow,
+        diameterKm: Math.round(coreR * 2),
+        meanRadiusKm: coreR,
+        eqRadiusKm: coreR,
+        polarRadiusKm: coreR * 0.998,
+        flattening: 0.002,
+        circumferenceKm: 2 * Math.PI * coreR,
+        surfaceAreaKm2: 4 * Math.PI * coreR * coreR,
+        volumeKm3: coreVol,
+        massKg,
+        massEarth: coreM,
+        solidMassKg: massKg,
+        liquidMassKg: 0,
+        gasMassKg: 0,
+        densityGcc: 5.4,
+        surfaceGravity,
+        atmosphere,
+        bands: false,
+        rings: false,
+        sizePx: Math.max(9, Math.min(34, Math.round(Math.sqrt(coreR * 2) / 8))),
+        fact: pick(FACTS["Chthonian World"]).replace("{n}", p.name),
+      });
+    }
+  }
+
+  /* ============ STEP 8 · FINAL VALIDATION ============
+     The summed planetary mass can never exceed the disk it formed from —
+     if rounding ever pushed it over, the most massive giant is removed. */
+  let totalE = planets.reduce((s, p) => s + (p.massEarth ?? 0), 0);
+  while (totalE > diskMassEarth && planets.length > 1) {
+    let gi = -1;
+    let gm = 0;
+    planets.forEach((p, i) => {
+      const isG = p.type === "Gas Giant" || p.type === "Ice Giant";
+      if (isG && (p.massEarth ?? 0) > gm) {
+        gm = p.massEarth ?? 0;
+        gi = i;
+      }
+    });
+    if (gi < 0) break;
+    planets.splice(gi, 1);
+    totalE = planets.reduce((s, p) => s + (p.massEarth ?? 0), 0);
+  }
+
+  star.worlds = planets.length;
+  star.fact += ` Born from a ${cloudMass.toFixed(0)} M☉ cloud at [Fe/H] ${
+    feh >= 0 ? "+" : ""
+  }${feh.toFixed(2)}, its ${Math.round(diskMassEarth).toLocaleString(
+    "en-US"
+  )} M⊕ disk survived ~${diskLifetimeMyr.toFixed(1)} Myr${
+    mode === "DISK INSTABILITY"
+      ? " — too briefly for dust to build rocky cores, so only giants could condense directly from the cold outer disk."
+      : "."
+  }`;
+
+  const maxAU = planets.length
+    ? planets[planets.length - 1].distanceAU
+    : Math.max(1, aFloor * 4);
 
   /* debris belt: carved from the widest apsidal gap between neighbours and
      trimmed to its middle half — structurally incapable of intersecting any
      planet's orbit, however eccentric */
   let belt: { innerAU: number; outerAU: number } | null = null;
-  if (n >= 4) {
+  if (planets.length >= 4 && !isOB) {
     let best = -1;
     let bestGap = 0;
-    for (let i = 0; i < n - 1; i++) {
+    for (let i = 0; i < planets.length - 1; i++) {
       const gap =
-        aAll[i + 1] * (1 - eccAll[i + 1]) - aAll[i] * (1 + eccAll[i]);
+        (planets[i + 1].periapsisAU ?? 0) - (planets[i].apoapsisAU ?? 0);
       if (gap > bestGap) {
         bestGap = gap;
         best = i;
@@ -938,10 +1193,10 @@ export function generateSystem(seed: number): StarSystem {
     if (best >= 0 && bestGap >= 0.6) {
       belt = {
         innerAU: Number(
-          (aAll[best] * (1 + eccAll[best]) + bestGap * 0.25).toFixed(3)
+          ((planets[best].apoapsisAU ?? 0) + bestGap * 0.25).toFixed(3)
         ),
         outerAU: Number(
-          (aAll[best + 1] * (1 - eccAll[best + 1]) - bestGap * 0.25).toFixed(3)
+          ((planets[best + 1].periapsisAU ?? 0) - bestGap * 0.25).toFixed(3)
         ),
       };
     }
@@ -957,5 +1212,26 @@ export function generateSystem(seed: number): StarSystem {
     belt,
     maxAU,
     rocheAU: rocheFluid,
+    nebula: { cloudMass, feh, spin },
+    disk: { massEarth: diskMassEarth, lifetimeMyr: diskLifetimeMyr, mode },
   };
+}
+
+/* Phased wrapper: runs the same pipeline but yields between stages so the
+   UI can light up each formation step while the system condenses. */
+export async function generateSystemPhased(
+  seed: number,
+  onPhase?: (i: number) => void
+): Promise<StarSystem> {
+  const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  for (let i = 0; i < 3; i++) {
+    onPhase?.(i);
+    await pause(i === 0 ? 220 : 130);
+  }
+  const sys = generateSystem(seed); // the full eight-step pipeline
+  for (let i = 3; i < PIPELINE_PHASES.length; i++) {
+    onPhase?.(i);
+    await pause(i === 3 ? 200 : 110);
+  }
+  return sys;
 }

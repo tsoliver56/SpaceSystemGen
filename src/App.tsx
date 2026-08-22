@@ -2,7 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   fmtSim,
   generateSystem,
+  generateSystemPhased,
   hexToRgba,
+  PIPELINE_PHASES,
   type Body,
 } from "./lib/generator";
 import {
@@ -70,6 +72,9 @@ export default function App() {
   const [selected, setSelected] = useState<Body | null>(null);
   const [touched, setTouched] = useState(false);
   const [warping, setWarping] = useState(false);
+  const [forming, setForming] = useState(false);
+  const [phase, setPhase] = useState(0);
+  const formingRef = useRef(false);
   const [clock, setClock] = useState("T+0y 000d");
   const deckRef = useRef<HTMLDivElement>(null);
   const [deckH, setDeckH] = useState(64);
@@ -359,16 +364,22 @@ export default function App() {
     setClock(fmtSim(0));
   }, []);
 
-  const regenerate = useCallback(() => {
-    if (warping) return;
+  const regenerate = useCallback(async () => {
+    if (formingRef.current) return;
+    formingRef.current = true;
     setWarping(true);
-    window.setTimeout(() => {
-      setSeed(Math.floor(Math.random() * 0xffffff));
-      setSelected(null);
-      trailPts.current = {};
-    }, 280);
     window.setTimeout(() => setWarping(false), 950);
-  }, [warping]);
+    await new Promise((r) => setTimeout(r, 300)); // let the warp bloom land
+    setForming(true);
+    setPhase(0);
+    const s = Math.floor(Math.random() * 0xffffff);
+    await generateSystemPhased(s, setPhase); // staged eight-step pipeline
+    setSelected(null);
+    trailPts.current = {};
+    setSeed(s);
+    setForming(false);
+    formingRef.current = false;
+  }, []);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -966,6 +977,61 @@ export default function App() {
           simDaysRef={simDaysRef}
           bottomOffset={deckH}
         />
+      )}
+
+      {/* formation sequence — runs while a new system condenses */}
+      {forming && (
+        <div className="fixed inset-0 z-[65] flex flex-col items-center justify-center gap-9 bg-black/95">
+          <div className="text-center">
+            <p className="text-[9px] tracking-[0.4em] text-white/35">
+              SEQUENTIAL ACCRETION PROTOCOL
+            </p>
+            <h2 className="font-display mt-2 text-[22px] font-black tracking-[0.12em] text-white md:text-[28px]">
+              FORMING <span className="text-solar">SYSTEM</span>
+            </h2>
+          </div>
+          <div className="w-[min(430px,88vw)]">
+            {PIPELINE_PHASES.map((label, i) => {
+              const done = i < phase;
+              const active = i === phase;
+              return (
+                <div
+                  key={label}
+                  className={`flex items-center gap-3 py-[5px] text-[10px] tracking-[0.22em] transition-colors duration-300 ${
+                    done
+                      ? "text-white/65"
+                      : active
+                        ? "text-solar"
+                        : "text-white/20"
+                  }`}
+                >
+                  <span
+                    className={`grid h-[18px] w-[18px] shrink-0 place-items-center border text-[8px] tabular-nums transition-all duration-300 ${
+                      done
+                        ? "border-solar/70 bg-solar/15 text-solar"
+                        : active
+                          ? "border-solar shadow-[0_0_12px_rgba(255,196,94,0.4)]"
+                          : "border-white/15"
+                    }`}
+                  >
+                    {done ? "✓" : i + 1}
+                  </span>
+                  <span className={active ? "animate-pulse" : ""}>{label}</span>
+                </div>
+              );
+            })}
+            <div className="mt-5 h-[3px] w-full overflow-hidden bg-white/10">
+              <div
+                className="h-full transition-all duration-300 ease-out"
+                style={{
+                  width: `${((phase + 1) / PIPELINE_PHASES.length) * 100}%`,
+                  background: "linear-gradient(90deg, rgba(255,196,94,0.4), #ffc45e)",
+                  boxShadow: "0 0 12px rgba(255,196,94,0.6)",
+                }}
+              />
+            </div>
+          </div>
+        </div>
       )}
 
       {/* film grain */}
