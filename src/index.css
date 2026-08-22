@@ -3,7 +3,7 @@
 @theme {
   --font-display: "Orbitron", "Space Mono", sans-serif;
   --font-body: "Space Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
-  --color-void: #04070f;
+  --color-void: #000000;
   --color-abyss: #070c1a;
   --color-panel: #0a1022;
   --color-solar: #ffc45e;
@@ -18,7 +18,7 @@ body,
 
 body {
   margin: 0;
-  background: #04070f;
+  background: #000000;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
 }

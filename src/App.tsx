@@ -400,23 +400,12 @@ export default function App() {
   const ticks = useMemo(() => Array.from({ length: 72 }, (_, i) => i * 5), []);
   const outerR = geom.ready && geom.radii.length ? geom.radii[geom.radii.length - 1] + 16 : 0;
 
-  const nebula = useMemo(() => {
-    const c = system.star.color;
-    return `radial-gradient(1100px 700px at 12% -8%, ${hexToRgba(c, 0.26)}, transparent 62%), radial-gradient(900px 650px at 108% 112%, ${hexToRgba(c, 0.12)}, transparent 60%), radial-gradient(1500px 1000px at 50% 46%, rgba(16,26,58,0.5), transparent 78%)`;
-  }, [system]);
-
   /* ---------------- render ---------------- */
 
   return (
     <div className="relative h-dvh w-full select-none overflow-hidden bg-void font-body text-slate-100">
       <Starfield tint={system.star.color} />
 
-      {/* nebula wash tinted by the star */}
-      <div
-        aria-hidden="true"
-        className="pointer-events-none fixed inset-0 z-0 transition-all duration-1000"
-        style={{ background: nebula }}
-      />
       {/* vignette */}
       <div
         aria-hidden="true"

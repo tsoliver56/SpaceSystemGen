@@ -62,7 +62,9 @@ export default function Starfield({ tint }: { tint?: string }) {
     resize();
     window.addEventListener("resize", resize);
 
-    const palette = ["#dfe9ff", "#cfe2ff", tint ?? "#ffd9a0"];
+    /* neutral whites against true black; a few stars keep the host
+       star's hue as an accent */
+    const palette = ["#f4f6fa", "#e4e8f0", tint ?? "#ffd9a0"];
 
     let last = performance.now();
     const frame = (now: number) => {
