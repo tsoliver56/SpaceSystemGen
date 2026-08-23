@@ -168,6 +168,32 @@ export default function Deck({
           </span>
         </div>
 
+        {/* camera view */}
+        <div className="flex items-center gap-2">
+          <span className="text-[9px] tracking-[0.25em] text-white/35">VIEW</span>
+          <div className="flex overflow-hidden rounded border border-white/12" role="group" aria-label="Camera view">
+            {VIEWS.map((v) => {
+              const active = view === v.id;
+              return (
+                <button
+                  key={v.id}
+                  onClick={() => onView(v.id)}
+                  title={`${v.hint} (V to cycle)`}
+                  aria-pressed={active}
+                  className={`flex items-center gap-1.5 px-2.5 py-1 text-[10px] tracking-[0.15em] transition-all duration-200 ${
+                    active
+                      ? "bg-terra/18 font-bold text-terra shadow-[inset_0_0_12px_rgba(111,177,255,0.15)]"
+                      : "text-white/40 hover:bg-white/5 hover:text-white/80"
+                  }`}
+                >
+                  {v.icon}
+                  {v.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         {/* generate */}
         <div className="flex items-center gap-2.5">
           <button
