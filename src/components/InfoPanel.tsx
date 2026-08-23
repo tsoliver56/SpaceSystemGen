@@ -328,7 +328,12 @@ export default function InfoPanel({ body, onClose, simDaysRef, bottomOffset }: I
 
   const isStar = !!body.isStar;
   const sizeFrac = Math.pow(body.diameterKm / 139820, 0.5);
-  const hzEdges = habitableZone(body.luminositySolar ?? 1); // [inner, outer] AU
+  /* effective habitable-zone edges — a zone can never begin inside the
+     Roche limit, where no self-gravitating world could survive */
+  const hzRaw = habitableZone(body.luminositySolar ?? 1);
+  const hzInner = Math.max(hzRaw[0], (body.rocheAU ?? 0) * 1.02);
+  const hzOuter = Math.max(hzRaw[1], hzInner + (body.rocheAU ?? 0) * 0.05 + 1e-4);
+  const hzClipped = hzInner > hzRaw[0] + 1e-9;
 
   return (
     <aside
@@ -404,13 +409,13 @@ export default function InfoPanel({ body, onClose, simDaysRef, bottomOffset }: I
               />
               <Stat
                 label="HABITABLE ZONE · INNER EDGE"
-                value={`${hzEdges[0].toFixed(2)} AU`}
-                sub="RUNAWAY-GREENHOUSE LIMIT"
+                value={`${hzInner.toFixed(2)} AU`}
+                sub={hzClipped ? "CLIPPED AT ROCHE LIMIT" : "RUNAWAY-GREENHOUSE LIMIT"}
                 accent="#50dc8c"
               />
               <Stat
                 label="HABITABLE ZONE · OUTER EDGE"
-                value={`${hzEdges[1].toFixed(2)} AU`}
+                value={`${hzOuter.toFixed(2)} AU`}
                 sub="MAXIMUM-GREENHOUSE LIMIT"
                 accent="#50dc8c"
               />

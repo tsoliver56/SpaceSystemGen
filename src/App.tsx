@@ -222,12 +222,23 @@ export default function App() {
      extremely translucent on purpose. */
   const hz = useMemo(() => {
     if (!geom.ready) return null;
-    const [hzIn, hzOut] = habitableZone(system.star.luminositySolar ?? 1);
+    const [rawIn, rawOut] = habitableZone(system.star.luminositySolar ?? 1);
+    /* habitability is impossible where tides disrupt bodies — the zone can
+       never begin inside the star's fluid Roche limit */
+    const roche = system.rocheAU;
+    const hzIn = Math.max(rawIn, roche * 1.02);
+    const hzOut = Math.max(rawOut, hzIn + roche * 0.05 + 1e-4);
     const toPx = (au: number) =>
       auToPx(au, geom.sunVis, geom.maxR, geom.scaleAU);
-    const inner = Math.max(toPx(hzIn), geom.sunVis + 3);
-    const outer = Math.min(toPx(hzOut), geom.maxR - 2);
-    if (outer - inner < 7) return null; // degenerate, or fully off the chart
+    let inner = Math.max(toPx(hzIn), geom.sunVis + 6);
+    let outer = Math.min(toPx(hzOut), geom.maxR - 2);
+    /* around dim stars the compressed zone can collapse below the star's
+       drawn limb — always keep a visible band anchored just outside it
+       (the label + scan panel carry the exact AU limits) */
+    if (outer - inner < 12) {
+      inner = Math.min(geom.sunVis + 6, Math.max(0, geom.maxR - 16));
+      outer = Math.min(inner + Math.max(12, outer - inner), geom.maxR - 2);
+    }
     const fmtAU = (v: number) =>
       v < 10 ? v.toFixed(2) : v < 100 ? v.toFixed(1) : String(Math.round(v));
     const labelA = (-135 * Math.PI) / 180; // upper-left diagonal
@@ -237,6 +248,7 @@ export default function App() {
       outer,
       mid,
       band: outer - inner,
+      clipped: hzIn > rawIn + 1e-9,
       lx: Math.max(96, Math.min(geom.w - 96, geom.cx + Math.cos(labelA) * (outer + 14))),
       ly: Math.max(16, geom.cy + Math.sin(labelA) * (outer + 14) * Math.cos(viewTilt)),
       label: `HZ · ${fmtAU(hzIn)}–${fmtAU(hzOut)} AU`,

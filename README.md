@@ -154,7 +154,12 @@ Worlds are categorized by where they sit relative to the **frost line**
   (`0.95–1.67 AU × √L★`). It is drawn as the bottom layer of the stage —
   beneath the belt, orbit rings, markers, motion trails, star and planets —
   with a deliberately near-invisible fill so it never covers a world or an
-  orbit you need to read.
+  orbit you need to read. The zone is always rendered, even when no world
+  orbits inside it: around dim stars the compressed band is anchored just
+  outside the star's limb so it never vanishes. Its inner edge is clipped
+  at the star's fluid Roche limit — a region where tides shred bodies
+  cannot, by definition, be habitable — and the scan panel reports the
+  clipped edge as such.
 
 ## Tech
 
