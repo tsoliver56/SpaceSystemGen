@@ -5,7 +5,13 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { fmtSim, GAS_DEFS, SUN_RADIUS_AU, type Body } from "../lib/generator";
+import {
+  fmtSim,
+  GAS_DEFS,
+  habitableZone,
+  SUN_RADIUS_AU,
+  type Body,
+} from "../lib/generator";
 import { nuFromE, solveKepler } from "../lib/kepler";
 import { fmtGasPct, fmtKm, fmtMassKg, fmtPressure, sci } from "../lib/format";
 
@@ -322,6 +328,7 @@ export default function InfoPanel({ body, onClose, simDaysRef, bottomOffset }: I
 
   const isStar = !!body.isStar;
   const sizeFrac = Math.pow(body.diameterKm / 139820, 0.5);
+  const hzEdges = habitableZone(body.luminositySolar ?? 1); // [inner, outer] AU
 
   return (
     <aside
@@ -394,6 +401,18 @@ export default function InfoPanel({ body, onClose, simDaysRef, bottomOffset }: I
                     : "—"
                 }
                 accent="#ff9d8a"
+              />
+              <Stat
+                label="HABITABLE ZONE · INNER EDGE"
+                value={`${hzEdges[0].toFixed(2)} AU`}
+                sub="RUNAWAY-GREENHOUSE LIMIT"
+                accent="#50dc8c"
+              />
+              <Stat
+                label="HABITABLE ZONE · OUTER EDGE"
+                value={`${hzEdges[1].toFixed(2)} AU`}
+                sub="MAXIMUM-GREENHOUSE LIMIT"
+                accent="#50dc8c"
               />
               <Stat label="WORLDS" value={String(body.worlds ?? 0)} accent={body.colorSoft} />
               <Stat label="CLASS" value={body.type.split(" ")[0]} />
