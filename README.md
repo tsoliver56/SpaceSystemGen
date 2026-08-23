@@ -152,9 +152,12 @@ Worlds are categorized by where they sit relative to the **frost line**
   facing the star.
 - A dark-grey graticule marks the system's **invariable plane** — the plane
   perpendicular to the total orbital angular momentum (the fossil orientation
-  of the protoplanetary disk). It gives an absolute orientation cue across
-  camera views: a full disk in top view, a line edge-on. Like the HZ it sits
-  beneath every layer needed to read the simulation.
+  of the protoplanetary disk). Its cells are exactly **1 AU**: the lines sit
+  at integer-AU distances under the same radial compression used to place
+  orbits, culled where a cell would render under ~13 px. The sheet runs to
+  the horizon and gives an absolute orientation cue across camera views —
+  a full sheet in top view, a line edge-on. Like the HZ it sits beneath
+  every layer needed to read the simulation.
 - A faint green annulus marks the star's circumstellar habitable zone
   (`0.95–1.67 AU × √L★`). It is drawn as the bottom layer of the stage —
   beneath the belt, orbit rings, markers, motion trails, star and planets —

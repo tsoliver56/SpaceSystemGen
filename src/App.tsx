@@ -233,28 +233,42 @@ export default function App() {
     const outerR = geom.radii[geom.radii.length - 1] ?? geom.maxR * 0.6;
     const tilt = viewTilt;
     const T = Math.hypot(geom.w, geom.h) * 0.8; // half-extent: past every corner, at any tilt
-    const step = Math.max(46, outerR / 3.2);
-    const K = Math.ceil(T / step);
+
+    /* cells are exactly 1 AU: lines sit at integer-AU distances under the
+       same radial compression used for orbit placement (auToPx minus the
+       star offset, so the lattice is anchored on the star). Cull where a
+       cell would render under ~13 px — finer cells read as noise. */
+    const C = geom.maxR - geom.sunVis;
+    const dAt = (au: number) => C * Math.pow(au / geom.scaleAU, 0.62);
+    const ts: number[] = [];
+    let prevD = 0;
+    for (let k = 1; k <= 4096; k++) {
+      const d = dAt(k);
+      if (d > T || d - prevD < 13) break;
+      ts.push(d);
+      prevD = d;
+    }
 
     const end = (dx: number, dy: number, dz: number) => {
       const p = project3({ x: dx, y: dy, z: dz }, tilt);
       return `${(geom.cx + p.x).toFixed(1)} ${(geom.cy + p.y).toFixed(1)}`;
     };
 
-    // one family: lines parallel to `dir`, offset by k·step along `off`
+    // one family: lines parallel to `dir`, offset by ±k AU along `off`
+    // (k = 0 is the principal axis through the star, drawn separately)
     type Line = { d: string; o: number };
     const fam = (
       dir: { x: number; y: number; z: number },
       off: { x: number; y: number; z: number }
     ): Line[] => {
       const out: Line[] = [];
-      for (let k = -K; k <= K; k++) {
-        if (k === 0) continue; // principal axes drawn separately, brighter
-        const s = k * step;
-        out.push({
-          d: `M${end(-T * dir.x + s * off.x, -T * dir.y + s * off.y, -T * dir.z + s * off.z)}L${end(T * dir.x + s * off.x, T * dir.y + s * off.y, T * dir.z + s * off.z)}`,
-          o: 0.11 * Math.max(0.12, 1 - Math.abs(s) / (T * 1.02)),
-        });
+      for (const t of ts) {
+        for (const s of [t, -t]) {
+          out.push({
+            d: `M${end(-T * dir.x + s * off.x, -T * dir.y + s * off.y, -T * dir.z + s * off.z)}L${end(T * dir.x + s * off.x, T * dir.y + s * off.y, T * dir.z + s * off.z)}`,
+            o: 0.11 * Math.max(0.12, 1 - Math.abs(s) / (T * 1.02)),
+          });
+        }
       }
       return out;
     };
@@ -631,10 +645,10 @@ export default function App() {
                   textAnchor="middle"
                   fill="rgba(160,168,190,0.4)"
                   fontSize={8}
-                  letterSpacing="0.2em"
+                  letterSpacing="0.14em"
                   style={{ fontFamily: "inherit" }}
                 >
-                  INVARIABLE PLANE
+                  INVARIABLE PLANE · 1 AU CELLS
                 </text>
               </svg>
             )}
