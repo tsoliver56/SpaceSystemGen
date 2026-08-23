@@ -3,6 +3,7 @@ import {
   fmtSim,
   generateSystem,
   generateSystemPhased,
+  habitableZone,
   hexToRgba,
   PIPELINE_PHASES,
   type Body,
@@ -184,6 +185,33 @@ export default function App() {
             : null,
       };
     });
+  }, [geom, system]);
+
+  /* circumstellar habitable zone annulus (in px). Rendered at the very
+     bottom of the stage stack so it never covers the belt, orbit rings,
+     markers, motion trails, the star, or any planet. The fill is kept
+     extremely translucent on purpose. */
+  const hz = useMemo(() => {
+    if (!geom.ready) return null;
+    const [hzIn, hzOut] = habitableZone(system.star.luminositySolar ?? 1);
+    const toPx = (au: number) =>
+      auToPx(au, geom.sunVis, geom.maxR, geom.scaleAU);
+    const inner = Math.max(toPx(hzIn), geom.sunVis + 3);
+    const outer = Math.min(toPx(hzOut), geom.maxR - 2);
+    if (outer - inner < 7) return null; // degenerate, or fully off the chart
+    const fmtAU = (v: number) =>
+      v < 10 ? v.toFixed(2) : v < 100 ? v.toFixed(1) : String(Math.round(v));
+    const labelA = (-135 * Math.PI) / 180; // upper-left diagonal
+    const mid = (inner + outer) / 2;
+    return {
+      inner,
+      outer,
+      mid,
+      band: outer - inner,
+      lx: Math.max(96, Math.min(geom.w - 96, geom.cx + Math.cos(labelA) * (outer + 14))),
+      ly: Math.max(16, geom.cy + Math.sin(labelA) * (outer + 14)),
+      label: `HZ · ${fmtAU(hzIn)}–${fmtAU(hzOut)} AU`,
+    };
   }, [geom, system]);
 
   /* ---------------- main simulation loop ---------------- */
@@ -451,6 +479,56 @@ export default function App() {
       >
         {geom.ready && (
           <>
+            {/* circumstellar habitable zone — deliberately the bottom layer */}
+            {hz && (
+              <svg
+                className="pointer-events-none absolute inset-0 z-[1]"
+                width={geom.w}
+                height={geom.h}
+                aria-hidden="true"
+                style={{ animation: "fadein 1.4s ease-out both" }}
+              >
+                {/* translucent green band */}
+                <circle
+                  cx={geom.cx}
+                  cy={geom.cy}
+                  r={hz.mid}
+                  fill="none"
+                  stroke="rgba(80,225,140,0.06)"
+                  strokeWidth={hz.band}
+                />
+                {/* inner + outer boundary hairlines */}
+                <circle
+                  cx={geom.cx}
+                  cy={geom.cy}
+                  r={hz.inner}
+                  fill="none"
+                  stroke="rgba(80,225,140,0.22)"
+                  strokeWidth={1}
+                  strokeDasharray="2 6"
+                />
+                <circle
+                  cx={geom.cx}
+                  cy={geom.cy}
+                  r={hz.outer}
+                  fill="none"
+                  stroke="rgba(80,225,140,0.22)"
+                  strokeWidth={1}
+                  strokeDasharray="2 6"
+                />
+                <text
+                  x={hz.lx}
+                  y={hz.ly}
+                  textAnchor="middle"
+                  fill="rgba(120,235,170,0.5)"
+                  fontSize={8}
+                  letterSpacing="0.18em"
+                  style={{ fontFamily: "inherit" }}
+                >
+                  {hz.label}
+                </text>
+              </svg>
+            )}
             <canvas
               ref={beltCanvasRef}
               className="pointer-events-none absolute inset-0 z-[2] h-full w-full"

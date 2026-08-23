@@ -150,6 +150,11 @@ Worlds are categorized by where they sit relative to the **frost line**
   flattening squashes fast-spinning giants, surface pressure sizes each
   world's haze shell, and a per-frame terminator keeps every night side
   facing the star.
+- A faint green annulus marks the star's circumstellar habitable zone
+  (`0.95–1.67 AU × √L★`). It is drawn as the bottom layer of the stage —
+  beneath the belt, orbit rings, markers, motion trails, star and planets —
+  with a deliberately near-invisible fill so it never covers a world or an
+  orbit you need to read.
 
 ## Tech
 

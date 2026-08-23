@@ -469,6 +469,13 @@ export function buildAtmosphere(
   };
 }
 
+/** Conservative circumstellar habitable zone (Kopparapu-style limits,
+ *  scaled by √L☉): runaway-greenhouse inner edge, maximum-greenhouse outer. */
+export function habitableZone(lumSolar: number): [number, number] {
+  const s = Math.sqrt(Math.max(1e-4, lumSolar));
+  return [0.95 * s, 1.67 * s];
+}
+
 export function fmtSim(days: number): string {
   const y = Math.floor(days / 365.25);
   const d = Math.floor(days - y * 365.25);
