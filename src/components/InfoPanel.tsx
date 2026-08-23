@@ -145,8 +145,15 @@ function MassBlock({ body }: { body: Body }) {
   if (total > 0 && gasKg / total >= 0.05) {
     rows.push({ label: "GASEOUS ENVELOPE", kg: gasKg, color: "#b8a0e8" });
   }
+  /* composition bars sweep in when the block mounts */
+  const [grown, setGrown] = useState(false);
+  useEffect(() => {
+    setGrown(false);
+    const id = window.setTimeout(() => setGrown(true), 80);
+    return () => window.clearTimeout(id);
+  }, [body.id]);
   return (
-    <div className="col-span-2 border border-white/8 bg-white/[0.025] px-3 py-2.5">
+    <div className="border border-white/8 bg-white/[0.025] px-3 py-2.5">
       <div className="flex items-baseline justify-between gap-3">
         <span className="text-[8px] tracking-[0.22em] text-white/40">TOTAL MASS</span>
         <span className="text-[13px] font-bold tabular-nums" style={{ color: body.colorSoft }}>
@@ -161,7 +168,7 @@ function MassBlock({ body }: { body: Body }) {
           <span
             key={r.label}
             className="h-full transition-[width] duration-700 ease-out"
-            style={{ width: `${total ? (r.kg / total) * 100 : 0}%`, background: r.color, boxShadow: `0 0 6px ${r.color}88` }}
+            style={{ width: grown && total ? `${(r.kg / total) * 100}%` : "0%", background: r.color, boxShadow: `0 0 6px ${r.color}88` }}
           />
         ))}
       </div>
@@ -484,15 +491,17 @@ export default function InfoPanel({ body, onClose, simDaysRef, bottomOffset }: I
             {/* ---------- 2 · PHYSICAL CHARACTERISTICS ---------- */}
             <SectionHead icon={<BodyIcon />} title="PHYSICAL CHARACTERISTICS" count={20} accent={body.colorSoft} />
 
-            <div className="mt-3 grid grid-cols-2 gap-2">
+            {/* mass anchors the section — full width, at the very top */}
+            <div className="mt-3">
+              <MassBlock body={body} />
+            </div>
+
+            <div className="mt-2 grid grid-cols-2 gap-2">
               <Stat label="MEAN RADIUS" value={fmtKm(body.meanRadiusKm ?? 0)} sub={`POLAR ${fmtKm(body.polarRadiusKm ?? 0)}`} accent={body.colorSoft} />
               <Stat label="EQUATORIAL RADIUS" value={fmtKm(body.eqRadiusKm ?? 0)} sub="AT EQUATOR" />
               <Stat label="FLATTENING" value={(body.flattening ?? 0).toFixed(5)} sub="f = (Re−Rp) / Re" />
               <Stat label="CIRCUMFERENCE" value={fmtKm(body.circumferenceKm ?? 0)} sub="EQUATORIAL" />
               <Stat label="SURFACE AREA" value={`${sci(body.surfaceAreaKm2 ?? 0)} km²`} sub={`${((body.surfaceAreaKm2 ?? 0) / 5.101e8).toFixed(2)}× EARTH`} />
-
-              <MassBlock body={body} />
-
               <Stat label="VOLUME" value={`${sci(body.volumeKm3 ?? 0)} km³`} sub={`${((body.volumeKm3 ?? 0) / V_EARTH_KM3).toFixed(2)} V⊕`} />
               <Stat label="MEAN DENSITY" value={`${(body.densityGcc ?? 0).toFixed(2)} g/cm³`} sub="WATER = 1.00" />
               <Stat label="SURFACE GRAVITY" value={`${(body.surfaceGravity ?? 0).toFixed(2)} m/s²`} sub={`${((body.surfaceGravity ?? 0) / 9.807).toFixed(2)} g⊕`} />
