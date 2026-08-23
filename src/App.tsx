@@ -15,6 +15,8 @@ import {
   orbitPathD,
   orbitPointAtE,
   orbitPointFromM,
+  planeBasis,
+  project3,
   VIEW_ANGLES,
   VIEW_TILT,
   type ViewMode,
@@ -214,6 +216,67 @@ export default function App() {
             : null,
       };
     });
+  }, [geom, system, viewTilt]);
+
+  /* Invariable-plane grid: the fossil orientation of the protoplanetary
+     disk, drawn as a dark-grey graticule lying in the total-angular-momentum
+     plane. Rendered at the very bottom layer. Under a top view it reads as a
+     full disk; under a side view it collapses to a line — giving the user an
+     absolute orientation reference as the camera tilts. */
+  const invGrid = useMemo(() => {
+    if (!geom.ready) return null;
+    const { u, v } = planeBasis(system.invariablePlane);
+    const R = geom.maxR * 0.94; // disk radius in px
+    const tilt = viewTilt;
+    const seg = (ax: number, ay: number, az: number, bx: number, by: number, bz: number) => {
+      const p = project3({ x: ax, y: ay, z: az }, tilt);
+      const q = project3({ x: bx, y: by, z: bz }, tilt);
+      return `M${(geom.cx + p.x).toFixed(1)} ${(geom.cy + p.y).toFixed(1)}L${(geom.cx + q.x).toFixed(1)} ${(geom.cy + q.y).toFixed(1)}`;
+    };
+
+    // square graticule, clipped analytically to the disk circle
+    let grid = "";
+    const step = R / 6;
+    for (let c = step; c < R; c += step) {
+      const half = Math.sqrt(Math.max(0, R * R - c * c));
+      if (half < 2) continue;
+      for (const s of [c, -c]) {
+        grid += seg(s * u.x - half * v.x, s * u.y - half * v.y, s * u.z - half * v.z, s * u.x + half * v.x, s * u.y + half * v.y, s * u.z + half * v.z);
+        grid += seg(-half * u.x + s * v.x, -half * u.y + s * v.y, -half * u.z + s * v.z, half * u.x + s * v.x, half * u.y + s * v.y, half * u.z + s * v.z);
+      }
+    }
+
+    // the two principal axes through the star
+    const axes =
+      seg(-R * u.x, -R * u.y, -R * u.z, R * u.x, R * u.y, R * u.z) +
+      seg(-R * v.x, -R * v.y, -R * v.z, R * v.x, R * v.y, R * v.z);
+
+    // rim + two inner rings: concentric circles in the plane
+    const ring = (rr: number, n = 72) => {
+      let d = "";
+      for (let k = 0; k <= n; k++) {
+        const th = (k / n) * Math.PI * 2;
+        const p = project3(
+          { x: rr * Math.cos(th) * u.x + rr * Math.sin(th) * v.x, y: rr * Math.cos(th) * u.y + rr * Math.sin(th) * v.y, z: rr * Math.cos(th) * u.z + rr * Math.sin(th) * v.z },
+          tilt
+        );
+        d += `${k === 0 ? "M" : "L"}${(geom.cx + p.x).toFixed(1)} ${(geom.cy + p.y).toFixed(1)}`;
+      }
+      return d + "Z";
+    };
+
+    // label anchor just past the rim along the u axis
+    const lp = project3({ x: (R + 16) * u.x, y: (R + 16) * u.y, z: (R + 16) * u.z }, tilt);
+
+    return {
+      grid,
+      axes,
+      rim: ring(R),
+      midRing: ring(R * 0.62),
+      innerRing: ring(R * 0.3),
+      lx: geom.cx + lp.x,
+      ly: geom.cy + lp.y,
+    };
   }, [geom, system, viewTilt]);
 
   /* circumstellar habitable zone annulus (in px). Rendered at the very
@@ -534,6 +597,33 @@ export default function App() {
       >
         {geom.ready && (
           <>
+            {/* invariable-plane graticule — the absolute orientation reference */}
+            {invGrid && (
+              <svg
+                className="pointer-events-none absolute inset-0 z-[1]"
+                width={geom.w}
+                height={geom.h}
+                aria-hidden="true"
+                style={{ animation: "fadein 1.6s ease-out both" }}
+              >
+                <path d={invGrid.midRing} fill="none" stroke="rgba(148,156,178,0.07)" strokeWidth={1} />
+                <path d={invGrid.innerRing} fill="none" stroke="rgba(148,156,178,0.06)" strokeWidth={1} />
+                <path d={invGrid.grid} fill="none" stroke="rgba(148,156,178,0.09)" strokeWidth={1} />
+                <path d={invGrid.axes} fill="none" stroke="rgba(148,156,178,0.15)" strokeWidth={1} />
+                <path d={invGrid.rim} fill="none" stroke="rgba(160,168,190,0.22)" strokeWidth={1} />
+                <text
+                  x={invGrid.lx}
+                  y={invGrid.ly}
+                  textAnchor="middle"
+                  fill="rgba(160,168,190,0.4)"
+                  fontSize={8}
+                  letterSpacing="0.2em"
+                  style={{ fontFamily: "inherit" }}
+                >
+                  INVARIABLE PLANE
+                </text>
+              </svg>
+            )}
             {/* circumstellar habitable zone — deliberately the bottom layer */}
             {hz && (
               <svg
