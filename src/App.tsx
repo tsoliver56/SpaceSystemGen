@@ -15,7 +15,12 @@ import {
   orbitPathD,
   orbitPointAtE,
   orbitPointFromM,
+  VIEW_ANGLES,
+  VIEW_TILT,
+  type ViewMode,
 } from "./lib/kepler";
+
+const VIEW_ORDER: ViewMode[] = ["top", "quarter", "side"];
 import Starfield from "./components/Starfield";
 import InfoPanel from "./components/InfoPanel";
 import Deck from "./components/Deck";
@@ -65,6 +70,30 @@ export default function App() {
 
   const [seed, setSeed] = useState(() => Math.floor(Math.random() * 0xffffff));
   const system = useMemo(() => generateSystem(seed), [seed]);
+
+  /* camera: top / quarter / side. viewTilt eases between presets; the ref
+     feeds the 60fps loop, the state re-renders the SVG geometry */
+  const [viewMode, setViewMode] = useState<ViewMode>("quarter");
+  const [viewTilt, setViewTilt] = useState<number>(VIEW_TILT);
+  const tiltRef = useRef<number>(VIEW_TILT);
+  useEffect(() => {
+    const from = tiltRef.current;
+    const to = VIEW_ANGLES[viewMode];
+    if (Math.abs(from - to) < 1e-4) return;
+    let raf = 0;
+    const t0 = performance.now();
+    const dur = 700;
+    const tick = (now: number) => {
+      const k = Math.min(1, (now - t0) / dur);
+      const e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+      const v = from + (to - from) * e;
+      tiltRef.current = v;
+      setViewTilt(v);
+      if (k < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [viewMode]);
 
   const [geom, setGeom] = useState<Geom>(INITIAL_GEOM);
   const [playing, setPlaying] = useState(true);
@@ -176,16 +205,16 @@ export default function App() {
       const fr = frameOf(p);
       return {
         id: p.id,
-        d: orbitPathD(p.distanceAU, e, fr, toPx, geom.cx, geom.cy),
-        peri: orbitPointAtE(p.distanceAU, e, fr, 0, toPx),
-        apo: orbitPointAtE(p.distanceAU, e, fr, Math.PI, toPx),
+        d: orbitPathD(p.distanceAU, e, fr, toPx, geom.cx, geom.cy, 148, viewTilt),
+        peri: orbitPointAtE(p.distanceAU, e, fr, 0, toPx, viewTilt),
+        apo: orbitPointAtE(p.distanceAU, e, fr, Math.PI, toPx, viewTilt),
         nodes:
           (p.inclinationDeg ?? 0) > 0.3
-            ? nodePoints(p.distanceAU, e, fr, toPx)
+            ? nodePoints(p.distanceAU, e, fr, toPx, viewTilt)
             : null,
       };
     });
-  }, [geom, system]);
+  }, [geom, system, viewTilt]);
 
   /* circumstellar habitable zone annulus (in px). Rendered at the very
      bottom of the stage stack so it never covers the belt, orbit rings,
@@ -209,10 +238,10 @@ export default function App() {
       mid,
       band: outer - inner,
       lx: Math.max(96, Math.min(geom.w - 96, geom.cx + Math.cos(labelA) * (outer + 14))),
-      ly: Math.max(16, geom.cy + Math.sin(labelA) * (outer + 14)),
+      ly: Math.max(16, geom.cy + Math.sin(labelA) * (outer + 14) * Math.cos(viewTilt)),
       label: `HZ · ${fmtAU(hzIn)}–${fmtAU(hzOut)} AU`,
     };
-  }, [geom, system]);
+  }, [geom, system, viewTilt]);
 
   /* ---------------- main simulation loop ---------------- */
   useEffect(() => {
@@ -266,6 +295,9 @@ export default function App() {
       }
       const g = geomRef.current;
       const sim = simDaysRef.current;
+      const tilt = tiltRef.current;
+      const cosT = Math.cos(tilt);
+      const sinT = Math.sin(tilt);
 
       if (!tCtx && trailCanvasRef.current) tCtx = sizeCanvas(trailCanvasRef.current);
       if (!bCtx && beltCanvasRef.current) bCtx = sizeCanvas(beltCanvasRef.current);
@@ -285,7 +317,7 @@ export default function App() {
               beltCtx.globalAlpha = k.al;
               beltCtx.fillRect(
                 g.cx + Math.cos(ang) * r,
-                g.cy + Math.sin(ang) * r,
+                g.cy + Math.sin(ang) * r * cosT,
                 k.s,
                 k.s
               );
@@ -327,12 +359,21 @@ export default function App() {
               p.eccentricity ?? 0,
               frameOf(p),
               M,
-              toPx
+              toPx,
+              tilt
             );
             const x = g.cx + pt.x;
             const y = g.cy + pt.y;
-            const s = Math.max(0.86, Math.min(1.14, 1 + pt.depth / (g.maxR * 2)));
+            /* depth cue scales with the tilt — flat in top view, full in side */
+            const s = Math.max(
+              0.86,
+              Math.min(1.14, 1 + (pt.depth * sinT) / (g.maxR * 2))
+            );
             el.style.transform = `translate3d(${x}px,${y}px,0) translate(-50%,-50%) scale(${s.toFixed(3)})`;
+            /* once the camera tilts, worlds on the far side of the star dip
+               behind it and near-side worlds pass in front (transits) */
+            el.style.zIndex =
+              tilt > 0.35 ? (pt.depth >= 0 ? "24" : "6") : "20";
 
             /* terminator: night side always faces away from the star;
                thick atmospheres soften the day-night boundary */
@@ -430,6 +471,8 @@ export default function App() {
         setSelected(null);
       } else if (e.key.toLowerCase() === "n") {
         regenerate();
+      } else if (e.key.toLowerCase() === "v") {
+        setViewMode((m) => VIEW_ORDER[(VIEW_ORDER.indexOf(m) + 1) % VIEW_ORDER.length]);
       }
     };
     window.addEventListener("keydown", onKey);
@@ -488,34 +531,43 @@ export default function App() {
                 aria-hidden="true"
                 style={{ animation: "fadein 1.4s ease-out both" }}
               >
-                {/* translucent green band */}
-                <circle
-                  cx={geom.cx}
-                  cy={geom.cy}
-                  r={hz.mid}
-                  fill="none"
-                  stroke="rgba(80,225,140,0.06)"
-                  strokeWidth={hz.band}
-                />
-                {/* inner + outer boundary hairlines */}
-                <circle
-                  cx={geom.cx}
-                  cy={geom.cy}
-                  r={hz.inner}
-                  fill="none"
-                  stroke="rgba(80,225,140,0.22)"
-                  strokeWidth={1}
-                  strokeDasharray="2 6"
-                />
-                <circle
-                  cx={geom.cx}
-                  cy={geom.cy}
-                  r={hz.outer}
-                  fill="none"
-                  stroke="rgba(80,225,140,0.22)"
-                  strokeWidth={1}
-                  strokeDasharray="2 6"
-                />
+                {/* the annulus squashes with the camera like every other
+                    in-plane feature (top view = full ring, side = a line) */}
+                <g
+                  style={{
+                    transform: `scaleY(${Math.cos(viewTilt).toFixed(4)})`,
+                    transformOrigin: `${geom.cx}px ${geom.cy}px`,
+                  }}
+                >
+                  {/* translucent green band */}
+                  <circle
+                    cx={geom.cx}
+                    cy={geom.cy}
+                    r={hz.mid}
+                    fill="none"
+                    stroke="rgba(80,225,140,0.06)"
+                    strokeWidth={hz.band}
+                  />
+                  {/* inner + outer boundary hairlines */}
+                  <circle
+                    cx={geom.cx}
+                    cy={geom.cy}
+                    r={hz.inner}
+                    fill="none"
+                    stroke="rgba(80,225,140,0.22)"
+                    strokeWidth={1}
+                    strokeDasharray="2 6"
+                  />
+                  <circle
+                    cx={geom.cx}
+                    cy={geom.cy}
+                    r={hz.outer}
+                    fill="none"
+                    stroke="rgba(80,225,140,0.22)"
+                    strokeWidth={1}
+                    strokeDasharray="2 6"
+                  />
+                </g>
                 <text
                   x={hz.lx}
                   y={hz.ly}
@@ -557,65 +609,79 @@ export default function App() {
                 stroke="rgba(140,170,255,0.05)"
                 strokeDasharray="2 7"
               />
-              <circle
-                cx={geom.cx}
-                cy={geom.cy}
-                r={outerR}
-                fill="none"
-                stroke="rgba(150,178,235,0.12)"
-                strokeDasharray="1 9"
-              />
-              {ticks.map((d) => {
-                const a = (d * Math.PI) / 180;
-                const r2 = outerR + (d % 30 === 0 ? 11 : 5);
-                return (
-                  <line
-                    key={d}
-                    x1={geom.cx + Math.cos(a) * outerR}
-                    y1={geom.cy + Math.sin(a) * outerR}
-                    x2={geom.cx + Math.cos(a) * r2}
-                    y2={geom.cy + Math.sin(a) * r2}
-                    stroke="rgba(150,178,235,0.14)"
-                  />
-                );
-              })}
               <g
                 style={{
+                  transform: `scaleY(${Math.cos(viewTilt).toFixed(4)})`,
                   transformOrigin: `${geom.cx}px ${geom.cy}px`,
-                  animation: "spin 80s linear infinite",
                 }}
               >
-                <line
-                  x1={geom.cx}
-                  y1={geom.cy}
-                  x2={geom.cx + outerR}
-                  y2={geom.cy}
-                  stroke="rgba(120,190,255,0.09)"
+                <circle
+                  cx={geom.cx}
+                  cy={geom.cy}
+                  r={outerR}
+                  fill="none"
+                  stroke="rgba(150,178,235,0.12)"
+                  strokeDasharray="1 9"
                 />
+                {ticks.map((d) => {
+                  const a = (d * Math.PI) / 180;
+                  const r2 = outerR + (d % 30 === 0 ? 11 : 5);
+                  return (
+                    <line
+                      key={d}
+                      x1={geom.cx + Math.cos(a) * outerR}
+                      y1={geom.cy + Math.sin(a) * outerR}
+                      x2={geom.cx + Math.cos(a) * r2}
+                      y2={geom.cy + Math.sin(a) * r2}
+                      stroke="rgba(150,178,235,0.14)"
+                    />
+                  );
+                })}
+                <g
+                  style={{
+                    transformOrigin: `${geom.cx}px ${geom.cy}px`,
+                    animation: "spin 80s linear infinite",
+                  }}
+                >
+                  <line
+                    x1={geom.cx}
+                    y1={geom.cy}
+                    x2={geom.cx + outerR}
+                    y2={geom.cy}
+                    stroke="rgba(120,190,255,0.09)"
+                  />
+                </g>
               </g>
 
               {/* Roche disruption zone — tides shred worlds inside this ring */}
               {geom.rocheR > 0 && (
                 <g>
-                  <circle
-                    cx={geom.cx}
-                    cy={geom.cy}
-                    r={geom.rocheR}
-                    fill="rgba(255,72,60,0.05)"
-                  />
-                  <circle
-                    cx={geom.cx}
-                    cy={geom.cy}
-                    r={geom.rocheR}
-                    fill="none"
-                    stroke="rgba(255,100,88,0.45)"
-                    strokeWidth={1}
-                    strokeDasharray="3 7"
-                    className="dash-drift"
-                  />
+                  <g
+                    style={{
+                      transform: `scaleY(${Math.cos(viewTilt).toFixed(4)})`,
+                      transformOrigin: `${geom.cx}px ${geom.cy}px`,
+                    }}
+                  >
+                    <circle
+                      cx={geom.cx}
+                      cy={geom.cy}
+                      r={geom.rocheR}
+                      fill="rgba(255,72,60,0.05)"
+                    />
+                    <circle
+                      cx={geom.cx}
+                      cy={geom.cy}
+                      r={geom.rocheR}
+                      fill="none"
+                      stroke="rgba(255,100,88,0.45)"
+                      strokeWidth={1}
+                      strokeDasharray="3 7"
+                      className="dash-drift"
+                    />
+                  </g>
                   <text
                     x={geom.cx + geom.rocheR * 0.71 + 5}
-                    y={geom.cy + geom.rocheR * 0.71 + 11}
+                    y={geom.cy + (geom.rocheR * 0.71 + 11) * Math.cos(viewTilt)}
                     fill="rgba(255,132,120,0.62)"
                     fontSize={7.5}
                     letterSpacing={2.4}
@@ -1013,6 +1079,14 @@ export default function App() {
             <span className="w-24 md:w-28" />
             <span className="w-9 text-[10px] tabular-nums">100%</span>
           </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] tracking-[0.25em]">VIEW</span>
+            <div className="flex overflow-hidden rounded border border-white/12">
+              <span className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] tracking-[0.15em]">TOP</span>
+              <span className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] tracking-[0.15em]">QUARTER</span>
+              <span className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] tracking-[0.15em]">SIDE</span>
+            </div>
+          </div>
           <div className="flex items-center gap-2.5">
             <span className="border px-3 py-1.5 text-[10px] font-bold tracking-[0.2em]">NEW SYSTEM</span>
             <span className="hidden text-[9px] tabular-nums tracking-widest md:block">SEED 0000</span>
@@ -1045,6 +1119,8 @@ export default function App() {
         seedLabel={system.seedLabel}
         onRegenerate={regenerate}
         bodies={system.bodies}
+        view={viewMode}
+        onView={setViewMode}
       />
 
       {selected && (

@@ -7,8 +7,16 @@
 /* ------------------------------------------------------------------ */
 
 export const DEG = Math.PI / 180;
-/** camera tilt off the perfect top-down view, in radians (~12°) */
+/** default camera tilt off the perfect top-down view, in radians (~12°) */
 export const VIEW_TILT = 0.21;
+
+/** camera presets: 0 = straight down on the plane, π/2 = edge-on */
+export type ViewMode = "top" | "quarter" | "side";
+export const VIEW_ANGLES: Record<ViewMode, number> = {
+  top: 0,
+  quarter: Math.PI / 4, // 45°
+  side: 88 * DEG, // near edge-on, a sliver of ellipse keeps orbits readable
+};
 
 export interface OrbitFrame {
   iRad: number; // inclination
@@ -74,13 +82,15 @@ export function auToPx(
   return sunVis + (maxR - sunVis) * Math.pow(frac, 0.62);
 }
 
-/** Point on the orbit at eccentric anomaly E, fully projected to screen. */
+/** Point on the orbit at eccentric anomaly E, fully projected to screen.
+ *  `tilt` is the camera angle off top-down: 0 = top view, π/2 = side view. */
 export function orbitPointAtE(
   aAU: number,
   e: number,
   fr: OrbitFrame,
   E: number,
-  toPx: (au: number) => number
+  toPx: (au: number) => number,
+  tilt: number = VIEW_TILT
 ): Pt {
   const nu = nuFromE(E, e);
   const rAU = aAU * (1 - e * Math.cos(E));
@@ -93,8 +103,8 @@ export function orbitPointAtE(
   const x = r * (cosO * Math.cos(u) - sinO * Math.sin(u) * cosI);
   const y3 = r * (sinO * Math.cos(u) + cosO * Math.sin(u) * cosI);
   const z3 = r * Math.sin(u) * sinI;
-  const ct = Math.cos(VIEW_TILT);
-  const st = Math.sin(VIEW_TILT);
+  const ct = Math.cos(tilt);
+  const st = Math.sin(tilt);
   return { x, y: y3 * ct - z3 * st, depth: y3 * st + z3 * ct, nu, rAU };
 }
 
@@ -104,9 +114,10 @@ export function orbitPointFromM(
   e: number,
   fr: OrbitFrame,
   M: number,
-  toPx: (au: number) => number
+  toPx: (au: number) => number,
+  tilt: number = VIEW_TILT
 ): Pt {
-  return orbitPointAtE(aAU, e, fr, solveKepler(M, e), toPx);
+  return orbitPointAtE(aAU, e, fr, solveKepler(M, e), toPx, tilt);
 }
 
 /** SVG path of the full projected ellipse (sampled in E). */
@@ -117,12 +128,13 @@ export function orbitPathD(
   toPx: (au: number) => number,
   cx: number,
   cy: number,
-  samples = 148
+  samples = 148,
+  tilt: number = VIEW_TILT
 ): string {
   let d = "";
   for (let k = 0; k <= samples; k++) {
     const E = (k / samples) * Math.PI * 2;
-    const p = orbitPointAtE(aAU, e, fr, E, toPx);
+    const p = orbitPointAtE(aAU, e, fr, E, toPx, tilt);
     d += `${k === 0 ? "M" : "L"}${(cx + p.x).toFixed(1)} ${(cy + p.y).toFixed(1)}`;
   }
   return d + "Z";
@@ -133,13 +145,14 @@ export function nodePoints(
   aAU: number,
   e: number,
   fr: OrbitFrame,
-  toPx: (au: number) => number
+  toPx: (au: number) => number,
+  tilt: number = VIEW_TILT
 ): { asc: Pt; desc: Pt } {
-  const p1 = orbitPointAtE(aAU, e, fr, eFromNu(-fr.wRad, e), toPx);
-  const p2 = orbitPointAtE(aAU, e, fr, eFromNu(Math.PI - fr.wRad, e), toPx);
+  const p1 = orbitPointAtE(aAU, e, fr, eFromNu(-fr.wRad, e), toPx, tilt);
+  const p2 = orbitPointAtE(aAU, e, fr, eFromNu(Math.PI - fr.wRad, e), toPx, tilt);
   // ascending = crossing toward the viewer: probe just past each crossing
-  const d1 = orbitPointAtE(aAU, e, fr, eFromNu(-fr.wRad + 0.03, e), toPx).depth;
-  const d2 = orbitPointAtE(aAU, e, fr, eFromNu(Math.PI - fr.wRad + 0.03, e), toPx).depth;
+  const d1 = orbitPointAtE(aAU, e, fr, eFromNu(-fr.wRad + 0.03, e), toPx, tilt).depth;
+  const d2 = orbitPointAtE(aAU, e, fr, eFromNu(Math.PI - fr.wRad + 0.03, e), toPx, tilt).depth;
   return d1 > d2 ? { asc: p1, desc: p2 } : { asc: p2, desc: p1 };
 }
 

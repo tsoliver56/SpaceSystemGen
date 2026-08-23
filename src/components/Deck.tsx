@@ -1,4 +1,42 @@
+import type { ReactNode } from "react";
 import { SPEED_OPTIONS, type Body } from "../lib/generator";
+import type { ViewMode } from "../lib/kepler";
+
+const VIEWS: { id: ViewMode; label: string; icon: ReactNode; hint: string }[] = [
+  {
+    id: "top",
+    label: "TOP",
+    hint: "Straight down on the orbital plane",
+    icon: (
+      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <circle cx="12" cy="12" r="8" />
+        <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+      </svg>
+    ),
+  },
+  {
+    id: "quarter",
+    label: "QUARTER",
+    hint: "Tilted 45° — depth reads as perspective",
+    icon: (
+      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <ellipse cx="12" cy="12" rx="9" ry="4.6" />
+        <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+      </svg>
+    ),
+  },
+  {
+    id: "side",
+    label: "SIDE",
+    hint: "Edge-on — watch worlds transit the star",
+    icon: (
+      <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <path d="M3.5 12h17" strokeLinecap="round" />
+        <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" />
+      </svg>
+    ),
+  },
+];
 
 interface DeckProps {
   playing: boolean;
@@ -14,6 +52,8 @@ interface DeckProps {
   seedLabel: string;
   onRegenerate: () => void;
   bodies: Body[];
+  view: ViewMode;
+  onView: (v: ViewMode) => void;
 }
 
 const PlayIcon = () => (
@@ -56,6 +96,8 @@ export default function Deck({
   seedLabel,
   onRegenerate,
   bodies,
+  view,
+  onView,
 }: DeckProps) {
   return (
     <div className="absolute inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#060a17]/92 backdrop-blur-[2px]">
