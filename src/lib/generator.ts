@@ -98,10 +98,6 @@ export interface StarSystem {
   /** formation history — the parent cloud and the protoplanetary disk */
   nebula?: { cloudMass: number; feh: number; spin: number };
   disk?: { massEarth: number; lifetimeMyr: number; mode: string };
-  /** unit normal of the invariable plane (the system's total angular-momentum
-   *  plane, i.e. the fossil orientation of the protoplanetary disk) in the
-   *  reference frame. Falls back to the reference plane (0,0,1). */
-  invariablePlane: { x: number; y: number; z: number };
 }
 
 /* the rate multiplier IS the rate: 1× = 1 simulated day per real second */
@@ -1213,27 +1209,6 @@ export function generateSystem(seed: number): StarSystem {
     }
   }
 
-  /* invariable plane: unit vector along the total orbital angular momentum.
-     L ∝ Σ m·√(a(1−e²))·ĥ(i,Ω); stellar spin is ~10³× smaller and ignored.
-     This is the fossil orientation of the protoplanetary disk. */
-  let Lx = 0,
-    Ly = 0,
-    Lz = 0;
-  for (const p of planets) {
-    const iRad = ((p.inclinationDeg ?? 0) * Math.PI) / 180;
-    const omRad = ((p.lonAscNodeDeg ?? 0) * Math.PI) / 180;
-    const w =
-      (p.massKg ?? 0) *
-      Math.sqrt(p.distanceAU * (1 - (p.eccentricity ?? 0) ** 2));
-    Lx += w * Math.sin(iRad) * Math.sin(omRad);
-    Ly += w * -Math.sin(iRad) * Math.cos(omRad);
-    Lz += w * Math.cos(iRad);
-  }
-  const Lmag = Math.hypot(Lx, Ly, Lz);
-  const invariablePlane = Lmag > 0
-    ? { x: Lx / Lmag, y: Ly / Lmag, z: Lz / Lmag }
-    : { x: 0, y: 0, z: 1 };
-
   return {
     seed,
     seedLabel: `0x${seed.toString(16).toUpperCase().padStart(6, "0")}`,
@@ -1246,7 +1221,6 @@ export function generateSystem(seed: number): StarSystem {
     rocheAU: rocheFluid,
     nebula: { cloudMass, feh, spin },
     disk: { massEarth: diskMassEarth, lifetimeMyr: diskLifetimeMyr, mode },
-    invariablePlane,
   };
 }
 

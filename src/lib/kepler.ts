@@ -168,37 +168,4 @@ export function frameOf(el: {
   };
 }
 
-/* ---------------- invariable-plane grid helpers ---------------- */
 
-export interface Vec3 {
-  x: number;
-  y: number;
-  z: number;
-}
-
-/** Project a reference-frame 3D point to screen for a given camera tilt. */
-export function project3(
-  p: Vec3,
-  tilt: number
-): { x: number; y: number; depth: number } {
-  const ct = Math.cos(tilt);
-  const st = Math.sin(tilt);
-  return { x: p.x, y: p.y * ct - p.z * st, depth: p.y * st + p.z * ct };
-}
-
-/** Orthonormal basis (u, v) spanning the plane perpendicular to normal n. */
-export function planeBasis(n: Vec3): { u: Vec3; v: Vec3 } {
-  const ref: Vec3 =
-    Math.abs(n.z) < 0.9 ? { x: 0, y: 0, z: 1 } : { x: 1, y: 0, z: 0 };
-  const ux = n.y * ref.z - n.z * ref.y;
-  const uy = n.z * ref.x - n.x * ref.z;
-  const uz = n.x * ref.y - n.y * ref.x;
-  const um = Math.hypot(ux, uy, uz) || 1;
-  const u: Vec3 = { x: ux / um, y: uy / um, z: uz / um };
-  const v: Vec3 = {
-    x: n.y * u.z - n.z * u.y,
-    y: n.z * u.x - n.x * u.z,
-    z: n.x * u.y - n.y * u.x,
-  };
-  return { u, v };
-}

@@ -15,8 +15,6 @@ import {
   orbitPathD,
   orbitPointAtE,
   orbitPointFromM,
-  planeBasis,
-  project3,
   VIEW_ANGLES,
   VIEW_TILT,
   type ViewMode,
@@ -216,80 +214,6 @@ export default function App() {
             : null,
       };
     });
-  }, [geom, system, viewTilt]);
-
-  /* Invariable-plane grid: the fossil orientation of the protoplanetary
-     disk, drawn as a dark-grey graticule lying in the total-angular-momentum
-     plane. The sheet is infinite in all directions — the projection is
-     orthographic (linear), so every grid line is a single straight segment
-     between endpoints far beyond the viewport; line opacity falls off with
-     in-plane distance and a radial mask dissolves the sheet toward the
-     screen edges. Rendered at the very bottom layer: a full sheet under a
-     top view, a collapsed line under a side view — an absolute orientation
-     reference as the camera tilts. */
-  const invGrid = useMemo(() => {
-    if (!geom.ready) return null;
-    const { u, v } = planeBasis(system.invariablePlane);
-    const outerR = geom.radii[geom.radii.length - 1] ?? geom.maxR * 0.6;
-    const tilt = viewTilt;
-    const T = Math.hypot(geom.w, geom.h) * 0.8; // half-extent: past every corner, at any tilt
-
-    /* linear spacing only: one constant pixels-per-AU step, so every cell
-       is exactly 1 AU everywhere on the sheet. The scale maps the outermost
-       orbit to the chart's outer ring; on very tight charts the step jumps
-       to a uniform integer multiple (2 AU cells) rather than distorting. */
-    const pxPerAU = geom.maxR / system.maxAU;
-    let step = pxPerAU;
-    if (step < 9) step = pxPerAU * Math.ceil(9 / pxPerAU);
-    const cellsAU = Math.round(step / pxPerAU);
-    const K = Math.min(220, Math.ceil(T / step));
-
-    const end = (dx: number, dy: number, dz: number) => {
-      const p = project3({ x: dx, y: dy, z: dz }, tilt);
-      return `${(geom.cx + p.x).toFixed(1)} ${(geom.cy + p.y).toFixed(1)}`;
-    };
-
-    // one family: lines parallel to `dir`, offset by ±k AU along `off`
-    // (k = 0 is the principal axis through the star, drawn separately)
-    type Line = { d: string; o: number };
-    const fam = (
-      dir: { x: number; y: number; z: number },
-      off: { x: number; y: number; z: number }
-    ): Line[] => {
-      const out: Line[] = [];
-      for (let k = 1; k <= K; k++) {
-        const s = k * step;
-        for (const sgn of [s, -s]) {
-          out.push({
-            d: `M${end(-T * dir.x + sgn * off.x, -T * dir.y + sgn * off.y, -T * dir.z + sgn * off.z)}L${end(T * dir.x + sgn * off.x, T * dir.y + sgn * off.y, T * dir.z + sgn * off.z)}`,
-            o: 0.11 * Math.max(0.12, 1 - Math.abs(sgn) / (T * 1.02)),
-          });
-        }
-      }
-      return out;
-    };
-
-    const uLines = fam(u, v);
-    const vLines = fam(v, u);
-
-    // the two principal axes through the star — full extent, a touch brighter
-    const axes =
-      `M${end(-T * u.x, -T * u.y, -T * u.z)}L${end(T * u.x, T * u.y, T * u.z)}` +
-      `M${end(-T * v.x, -T * v.y, -T * v.z)}L${end(T * v.x, T * v.y, T * v.z)}`;
-
-    // label: rides the v axis just beyond the outermost orbit
-    const lp = project3(
-      { x: outerR * 1.5 * v.x, y: outerR * 1.5 * v.y, z: outerR * 1.5 * v.z },
-      tilt
-    );
-    return {
-      uLines,
-      vLines,
-      axes,
-      cellsAU,
-      lx: Math.max(92, Math.min(geom.w - 118, geom.cx + lp.x)),
-      ly: Math.max(18, Math.min(geom.h - 16, geom.cy + lp.y)),
-    };
   }, [geom, system, viewTilt]);
 
   /* circumstellar habitable zone annulus (in px). Rendered at the very
@@ -610,45 +534,6 @@ export default function App() {
       >
         {geom.ready && (
           <>
-            {/* invariable-plane graticule — infinite sheet, absolute orientation reference */}
-            {invGrid && (
-              <svg
-                className="pointer-events-none absolute inset-0 z-[1]"
-                width={geom.w}
-                height={geom.h}
-                aria-hidden="true"
-                style={{ animation: "fadein 1.6s ease-out both" }}
-              >
-                {/* the sheet itself — radial mask dissolves it toward the screen edges */}
-                <g
-                  style={{
-                    maskImage:
-                      "radial-gradient(ellipse 76% 72% at 50% 50%, #000 26%, rgba(0,0,0,0.55) 56%, transparent 82%)",
-                    WebkitMaskImage:
-                      "radial-gradient(ellipse 76% 72% at 50% 50%, #000 26%, rgba(0,0,0,0.55) 56%, transparent 82%)",
-                  }}
-                >
-                  {invGrid.uLines.map((l, i) => (
-                    <path key={`u${i}`} d={l.d} fill="none" stroke="rgba(148,156,178,1)" strokeOpacity={l.o} strokeWidth={1} />
-                  ))}
-                  {invGrid.vLines.map((l, i) => (
-                    <path key={`v${i}`} d={l.d} fill="none" stroke="rgba(148,156,178,1)" strokeOpacity={l.o} strokeWidth={1} />
-                  ))}
-                  <path d={invGrid.axes} fill="none" stroke="rgba(160,168,190,0.2)" strokeWidth={1} />
-                </g>
-                <text
-                  x={invGrid.lx}
-                  y={invGrid.ly}
-                  textAnchor="middle"
-                  fill="rgba(160,168,190,0.4)"
-                  fontSize={8}
-                  letterSpacing="0.14em"
-                  style={{ fontFamily: "inherit" }}
-                >
-                  INVARIABLE PLANE · {invGrid.cellsAU} AU CELLS
-                </text>
-              </svg>
-            )}
             {/* circumstellar habitable zone — deliberately the bottom layer */}
             {hz && (
               <svg
