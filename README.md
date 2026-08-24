@@ -152,10 +152,12 @@ Worlds are categorized by where they sit relative to the **frost line**
   facing the star.
 - A dark-grey graticule marks the system's **invariable plane** — the plane
   perpendicular to the total orbital angular momentum (the fossil orientation
-  of the protoplanetary disk). Its cells are exactly **1 AU**: the lines sit
-  at integer-AU distances under the same radial compression used to place
-  orbits, culled where a cell would render under ~13 px. The sheet runs to
-  the horizon and gives an absolute orientation cue across camera views —
+  of the protoplanetary disk). Its spacing is **linear only**: a single
+  constant pixels-per-AU step (the outermost orbit maps to the chart's outer
+  ring), so every cell is exactly **1 AU** everywhere on the sheet — on very
+  tight charts the step jumps to a uniform 2 AU multiple rather than
+  distorting. The sheet runs to the horizon and gives an absolute
+  orientation cue across camera views —
   a full sheet in top view, a line edge-on. Like the HZ it sits beneath
   every layer needed to read the simulation.
 - A faint green annulus marks the star's circumstellar habitable zone

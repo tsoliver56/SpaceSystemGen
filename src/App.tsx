@@ -234,20 +234,15 @@ export default function App() {
     const tilt = viewTilt;
     const T = Math.hypot(geom.w, geom.h) * 0.8; // half-extent: past every corner, at any tilt
 
-    /* cells are exactly 1 AU: lines sit at integer-AU distances under the
-       same radial compression used for orbit placement (auToPx minus the
-       star offset, so the lattice is anchored on the star). Cull where a
-       cell would render under ~13 px — finer cells read as noise. */
-    const C = geom.maxR - geom.sunVis;
-    const dAt = (au: number) => C * Math.pow(au / geom.scaleAU, 0.62);
-    const ts: number[] = [];
-    let prevD = 0;
-    for (let k = 1; k <= 4096; k++) {
-      const d = dAt(k);
-      if (d > T || d - prevD < 13) break;
-      ts.push(d);
-      prevD = d;
-    }
+    /* linear spacing only: one constant pixels-per-AU step, so every cell
+       is exactly 1 AU everywhere on the sheet. The scale maps the outermost
+       orbit to the chart's outer ring; on very tight charts the step jumps
+       to a uniform integer multiple (2 AU cells) rather than distorting. */
+    const pxPerAU = geom.maxR / system.maxAU;
+    let step = pxPerAU;
+    if (step < 9) step = pxPerAU * Math.ceil(9 / pxPerAU);
+    const cellsAU = Math.round(step / pxPerAU);
+    const K = Math.min(220, Math.ceil(T / step));
 
     const end = (dx: number, dy: number, dz: number) => {
       const p = project3({ x: dx, y: dy, z: dz }, tilt);
@@ -262,11 +257,12 @@ export default function App() {
       off: { x: number; y: number; z: number }
     ): Line[] => {
       const out: Line[] = [];
-      for (const t of ts) {
-        for (const s of [t, -t]) {
+      for (let k = 1; k <= K; k++) {
+        const s = k * step;
+        for (const sgn of [s, -s]) {
           out.push({
-            d: `M${end(-T * dir.x + s * off.x, -T * dir.y + s * off.y, -T * dir.z + s * off.z)}L${end(T * dir.x + s * off.x, T * dir.y + s * off.y, T * dir.z + s * off.z)}`,
-            o: 0.11 * Math.max(0.12, 1 - Math.abs(s) / (T * 1.02)),
+            d: `M${end(-T * dir.x + sgn * off.x, -T * dir.y + sgn * off.y, -T * dir.z + sgn * off.z)}L${end(T * dir.x + sgn * off.x, T * dir.y + sgn * off.y, T * dir.z + sgn * off.z)}`,
+            o: 0.11 * Math.max(0.12, 1 - Math.abs(sgn) / (T * 1.02)),
           });
         }
       }
@@ -290,6 +286,7 @@ export default function App() {
       uLines,
       vLines,
       axes,
+      cellsAU,
       lx: Math.max(92, Math.min(geom.w - 118, geom.cx + lp.x)),
       ly: Math.max(18, Math.min(geom.h - 16, geom.cy + lp.y)),
     };
@@ -648,7 +645,7 @@ export default function App() {
                   letterSpacing="0.14em"
                   style={{ fontFamily: "inherit" }}
                 >
-                  INVARIABLE PLANE · 1 AU CELLS
+                  INVARIABLE PLANE · {invGrid.cellsAU} AU CELLS
                 </text>
               </svg>
             )}
