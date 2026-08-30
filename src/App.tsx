@@ -145,9 +145,12 @@ export default function App() {
     const scaleAU = system.maxAU * 1.3;
     const toPx = (au: number) =>
       auToPx(au, sunR * starScale, maxR, scaleAU);
+    /* on phones the control bar + info sheet claim the lower half, so the
+       star sits a third of the way down to give the system the room above */
+    const cy = w < 768 ? Math.round(h / 3) : Math.round(h / 2);
     const next: Geom = {
       cx: w / 2,
-      cy: h / 2,
+      cy,
       w,
       h,
       sunR,
@@ -1088,6 +1091,10 @@ export default function App() {
       >
         <div className="mx-auto flex max-w-[1560px] flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5 md:px-6">
           <div className="flex items-center gap-2.5">
+            <span className="border px-3 py-1.5 text-[10px] font-bold tracking-[0.2em]">NEW SYSTEM</span>
+            <span className="hidden text-[9px] tabular-nums tracking-widest md:block">SEED 0000</span>
+          </div>
+          <div className="flex items-center gap-2.5">
             <span className="h-10 w-10" />
             <span className="h-8 w-8" />
             <span className="hidden text-[11px] tracking-wider sm:block">T+99999y 364d</span>
@@ -1113,10 +1120,6 @@ export default function App() {
               <span className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] tracking-[0.15em]">QUARTER</span>
               <span className="flex items-center gap-1.5 px-2.5 py-1 text-[10px] tracking-[0.15em]">SIDE</span>
             </div>
-          </div>
-          <div className="flex items-center gap-2.5">
-            <span className="border px-3 py-1.5 text-[10px] font-bold tracking-[0.2em]">NEW SYSTEM</span>
-            <span className="hidden text-[9px] tabular-nums tracking-widest md:block">SEED 0000</span>
           </div>
           <div className="flex w-full items-center gap-2 md:ml-auto md:w-auto">
             <span className="h-7 w-7 shrink-0" />

@@ -160,6 +160,23 @@ export default function Deck({
   return (
     <div className="absolute inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#060a17]/92 backdrop-blur-[2px]">
       <div className="mx-auto flex max-w-[1560px] flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5 md:px-6">
+        {/* generate — first, so a fresh system is always one tap away */}
+        <div className="flex items-center gap-2.5">
+          <button
+            onClick={onRegenerate}
+            title="Generate a new random system (N)"
+            className="group flex items-center gap-2 border border-solar/50 bg-solar/10 px-3 py-1.5 text-[10px] font-bold tracking-[0.2em] text-solar transition-all duration-200 hover:bg-solar/25 hover:shadow-[0_0_18px_rgba(255,196,94,0.3)] active:scale-95"
+          >
+            <span className="transition-transform duration-500 group-hover:rotate-180">
+              <DiceIcon />
+            </span>
+            NEW SYSTEM
+          </button>
+          <span className="hidden text-[9px] tabular-nums tracking-widest text-white/30 md:block">
+            {seedLabel}
+          </span>
+        </div>
+
         {/* transport */}
         <div className="flex items-center gap-2.5">
           <button
@@ -250,23 +267,6 @@ export default function Deck({
               );
             })}
           </div>
-        </div>
-
-        {/* generate */}
-        <div className="flex items-center gap-2.5">
-          <button
-            onClick={onRegenerate}
-            title="Generate a new random system (N)"
-            className="group flex items-center gap-2 border border-solar/50 bg-solar/10 px-3 py-1.5 text-[10px] font-bold tracking-[0.2em] text-solar transition-all duration-200 hover:bg-solar/25 hover:shadow-[0_0_18px_rgba(255,196,94,0.3)] active:scale-95"
-          >
-            <span className="transition-transform duration-500 group-hover:rotate-180">
-              <DiceIcon />
-            </span>
-            NEW SYSTEM
-          </button>
-          <span className="hidden text-[9px] tabular-nums tracking-widest text-white/30 md:block">
-            {seedLabel}
-          </span>
         </div>
 
         {/* body selector */}
