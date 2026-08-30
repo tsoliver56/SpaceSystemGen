@@ -103,32 +103,53 @@ export default function Deck({
   const listRef = useRef<HTMLDivElement>(null);
   const chipRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const smoothNext = useRef(false);
+  const selectedIdRef = useRef<string | null>(null);
+  selectedIdRef.current = selected?.id ?? null;
 
   useEffect(() => {
     smoothNext.current = false; // system swap — recentre without animation
   }, [bodies]);
 
+  /* the glide — fires whenever the selection changes, whatever the source:
+     a chip tap, a planet or star click on the chart, the arrow keys, or the
+     carousel paddles. The strip carries half-a-window of padding on each
+     side, so even the first and last chips can travel to dead centre. */
   useEffect(() => {
     const el = listRef.current;
     const id = selected?.id;
     if (!el || !id) return;
-    const center = (smooth: boolean) => {
-      const chip = chipRefs.current[id];
+    const chip = chipRefs.current[id];
+    if (!chip) return;
+    el.scrollTo({
+      left: chip.offsetLeft + chip.offsetWidth / 2 - el.clientWidth / 2,
+      behavior: smoothNext.current ? "smooth" : "auto",
+    });
+    smoothNext.current = true;
+  }, [selected?.id, bodies]);
+
+  /* resize-only recentre: kept in its own effect so it can never interrupt
+     the glide, and it swallows the observer's initial delivery (which is an
+     observe, not a resize) */
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    let armed = false;
+    const ro = new ResizeObserver(() => {
+      if (!armed) {
+        armed = true;
+        return;
+      }
+      const id = selectedIdRef.current;
+      const chip = id ? chipRefs.current[id] : null;
       if (!chip) return;
-      /* the strip carries half-a-window of padding on each side, so even
-         the first and last chips can travel to dead centre */
       el.scrollTo({
         left: chip.offsetLeft + chip.offsetWidth / 2 - el.clientWidth / 2,
-        behavior: smooth ? "smooth" : "auto",
+        behavior: "auto",
       });
-    };
-    center(smoothNext.current);
-    smoothNext.current = true;
-    /* re-centre whenever the window resizes or the bar reflows */
-    const ro = new ResizeObserver(() => center(false));
+    });
     ro.observe(el);
     return () => ro.disconnect();
-  }, [selected?.id, bodies]);
+  }, [bodies]);
 
   const step = (dir: 1 | -1) => {
     if (!bodies.length) return;
