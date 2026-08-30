@@ -228,17 +228,31 @@ export default function App() {
     const roche = system.rocheAU;
     const hzIn = Math.max(rawIn, roche * 1.02);
     const hzOut = Math.max(rawOut, hzIn + roche * 0.05 + 1e-4);
+
+    /* Unclamped radial projection (AU → px). auToPx clamps its fraction, so
+       we recompute the raw value here to detect when the zone lies entirely
+       beyond the rendered system rather than letting it collapse onto the
+       outer ring. */
+    const rawProj = (au: number) =>
+      geom.sunVis +
+      (geom.maxR - geom.sunVis) * Math.pow(Math.max(0, au / geom.scaleAU), 0.62);
+
+    /* If even the CLOSEST habitable boundary projects to (or past) the outer
+       ring, the whole zone is off the chart — e.g. an O/B supergiant whose
+       HZ sits at hundreds of AU while its planets form at a few tens. Drawing
+       a band anywhere on-screen would misrepresent that, so hide it. The scan
+       panel still reports the true AU limits. */
+    if (rawProj(hzIn) >= geom.maxR - 4) return null;
+
     const toPx = (au: number) =>
       auToPx(au, geom.sunVis, geom.maxR, geom.scaleAU);
-    let inner = Math.max(toPx(hzIn), geom.sunVis + 6);
+    /* Draw the zone exactly where it projects to. Clip the outer edge at the
+       chart rim when the zone runs off-screen; guarantee a minimal visible
+       band at the TRUE location (never re-anchored elsewhere). */
+    const inner = Math.max(toPx(hzIn), geom.sunVis + 3);
     let outer = Math.min(toPx(hzOut), geom.maxR - 2);
-    /* around dim stars the compressed zone can collapse below the star's
-       drawn limb — always keep a visible band anchored just outside it
-       (the label + scan panel carry the exact AU limits) */
-    if (outer - inner < 12) {
-      inner = Math.min(geom.sunVis + 6, Math.max(0, geom.maxR - 16));
-      outer = Math.min(inner + Math.max(12, outer - inner), geom.maxR - 2);
-    }
+    if (outer - inner < 4) outer = Math.min(inner + 4, geom.maxR - 2);
+
     const fmtAU = (v: number) =>
       v < 10 ? v.toFixed(2) : v < 100 ? v.toFixed(1) : String(Math.round(v));
     const labelA = (-135 * Math.PI) / 180; // upper-left diagonal
