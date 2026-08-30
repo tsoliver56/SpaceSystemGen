@@ -819,8 +819,10 @@ export default function App() {
               style={{
                 left: geom.cx,
                 top: geom.cy,
-                width: geom.sunVis * 2.4,
-                height: geom.sunVis * 2.4,
+                /* hit area = the visible disc only — glows, rays, Roche and
+                   HZ rings around it must never select the star */
+                width: geom.sunVis * 2,
+                height: geom.sunVis * 2,
                 transform: "translate(-50%,-50%)",
               }}
             >
@@ -843,7 +845,7 @@ export default function App() {
                 />
               </span>
               <span
-                className="absolute left-1/2 top-1/2 rounded-full"
+                className="pointer-events-none absolute left-1/2 top-1/2 rounded-full"
                 style={{
                   width: geom.sunVis * 4.8,
                   height: geom.sunVis * 4.8,
@@ -853,7 +855,7 @@ export default function App() {
                 }}
               />
               <span
-                className="absolute left-1/2 top-1/2 rounded-full"
+                className="pointer-events-none absolute left-1/2 top-1/2 rounded-full"
                 style={{
                   width: geom.sunVis * 2.7,
                   height: geom.sunVis * 2.7,
@@ -862,7 +864,7 @@ export default function App() {
                 }}
               />
               <span
-                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-transform duration-300 group-hover:scale-105"
+                className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full transition-transform duration-300 group-hover:scale-105"
                 style={{
                   width: geom.sunVis * 2,
                   height: geom.sunVis * 2,
