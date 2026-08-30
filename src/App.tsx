@@ -146,8 +146,9 @@ export default function App() {
     const toPx = (au: number) =>
       auToPx(au, sunR * starScale, maxR, scaleAU);
     /* on phones the control bar + info sheet claim the lower half, so the
-       star sits a third of the way down to give the system the room above */
-    const cy = w < 768 ? Math.round(h / 3) : Math.round(h / 2);
+       star sits above centre; both layouts are nudged down by an eighth
+       of the display so the system's upper arcs stay clear of the header */
+    const cy = w < 768 ? Math.round(h / 3 + h / 8) : Math.round(h / 2 + h / 8);
     const next: Geom = {
       cx: w / 2,
       cy,
