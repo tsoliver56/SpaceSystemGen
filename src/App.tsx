@@ -1105,7 +1105,7 @@ export default function App() {
           </div>
           <div className="flex w-full items-center gap-2 md:ml-auto md:w-auto">
             <span className="h-7 w-7 shrink-0" />
-            <div className="relative min-w-0 flex-1 md:w-[30rem] md:max-w-[46vw] md:flex-none">
+            <div className="relative min-w-0 flex-1 basis-full md:basis-0 md:max-w-[40rem]">
               <div className="no-scrollbar relative flex items-center gap-1 overflow-x-auto py-1">
                 {system.bodies.map((b) => (
                   <span

@@ -112,15 +112,22 @@ export default function Deck({
     const el = listRef.current;
     const id = selected?.id;
     if (!el || !id) return;
-    const chip = chipRefs.current[id];
-    if (!chip) return;
-    const target =
-      chip.offsetLeft + chip.offsetWidth / 2 - el.clientWidth / 2;
-    el.scrollTo({
-      left: Math.max(0, target),
-      behavior: smoothNext.current ? "smooth" : "auto",
-    });
+    const center = (smooth: boolean) => {
+      const chip = chipRefs.current[id];
+      if (!chip) return;
+      /* the strip carries half-a-window of padding on each side, so even
+         the first and last chips can travel to dead centre */
+      el.scrollTo({
+        left: chip.offsetLeft + chip.offsetWidth / 2 - el.clientWidth / 2,
+        behavior: smooth ? "smooth" : "auto",
+      });
+    };
+    center(smoothNext.current);
     smoothNext.current = true;
+    /* re-centre whenever the window resizes or the bar reflows */
+    const ro = new ResizeObserver(() => center(false));
+    ro.observe(el);
+    return () => ro.disconnect();
   }, [selected?.id, bodies]);
 
   const step = (dir: 1 | -1) => {
@@ -254,7 +261,7 @@ export default function Deck({
             </svg>
           </button>
 
-          <div className="relative min-w-0 flex-1 md:w-[30rem] md:max-w-[46vw] md:flex-none">
+          <div className="relative min-w-0 flex-1 basis-full md:basis-0 md:max-w-[40rem]">
             {/* edge fades signal more bodies off-window */}
             <span className="pointer-events-none absolute inset-y-0 left-0 z-10 w-9 bg-gradient-to-r from-[#060a17] to-transparent" />
             <span className="pointer-events-none absolute inset-y-0 right-0 z-10 w-9 bg-gradient-to-l from-[#060a17] to-transparent" />
@@ -263,6 +270,7 @@ export default function Deck({
             <div
               ref={listRef}
               className="no-scrollbar relative flex items-center gap-1 overflow-x-auto py-1"
+              style={{ paddingLeft: "50%", paddingRight: "50%" }}
             >
               {bodies.map((b) => {
                 const active = selected?.id === b.id;
