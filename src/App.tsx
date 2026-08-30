@@ -702,7 +702,6 @@ export default function App() {
                       stroke="rgba(255,100,88,0.45)"
                       strokeWidth={1}
                       strokeDasharray="3 7"
-                      className="dash-drift"
                     />
                   </g>
                   <text
