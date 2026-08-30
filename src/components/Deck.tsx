@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { SPEED_OPTIONS, type Body } from "../lib/generator";
 import type { ViewMode } from "../lib/kepler";
 
@@ -99,6 +99,36 @@ export default function Deck({
   view,
   onView,
 }: DeckProps) {
+  /* body carousel: the selected chip glides to the middle of the window */
+  const listRef = useRef<HTMLDivElement>(null);
+  const chipRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const smoothNext = useRef(false);
+
+  useEffect(() => {
+    smoothNext.current = false; // system swap — recentre without animation
+  }, [bodies]);
+
+  useEffect(() => {
+    const el = listRef.current;
+    const id = selected?.id;
+    if (!el || !id) return;
+    const chip = chipRefs.current[id];
+    if (!chip) return;
+    const target =
+      chip.offsetLeft + chip.offsetWidth / 2 - el.clientWidth / 2;
+    el.scrollTo({
+      left: Math.max(0, target),
+      behavior: smoothNext.current ? "smooth" : "auto",
+    });
+    smoothNext.current = true;
+  }, [selected?.id, bodies]);
+
+  const step = (dir: 1 | -1) => {
+    if (!bodies.length) return;
+    const idx = selected ? bodies.findIndex((b) => b.id === selected.id) : -1;
+    onSelect(bodies[(idx + dir + bodies.length) % bodies.length]);
+  };
+
   return (
     <div className="absolute inset-x-0 bottom-0 z-40 border-t border-white/10 bg-[#060a17]/92 backdrop-blur-[2px]">
       <div className="mx-auto flex max-w-[1560px] flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5 md:px-6">
@@ -212,28 +242,69 @@ export default function Deck({
         </div>
 
         {/* body selector */}
-        <div className="scroll-slim ml-auto flex max-w-full items-center gap-1 overflow-x-auto pb-0.5">
-          {bodies.map((b) => {
-            const active = selected?.id === b.id;
-            return (
-              <button
-                key={b.id}
-                onClick={() => onSelect(b)}
-                className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] tracking-[0.15em] transition-all duration-200 ${
-                  active
-                    ? "bg-white/8 font-bold text-white"
-                    : "border-white/10 text-white/50 hover:border-white/30 hover:text-white/90"
-                }`}
-                style={active ? { borderColor: b.color } : undefined}
-              >
-                <span
-                  className="h-1.5 w-1.5 rounded-full"
-                  style={{ background: b.color, boxShadow: `0 0 6px ${b.glow}` }}
-                />
-                {b.name.toUpperCase()}
-              </button>
-            );
-          })}
+        {/* body carousel */}
+        <div className="flex w-full items-center gap-2 md:ml-auto md:w-auto">
+          <button
+            onClick={() => step(-1)}
+            aria-label="Previous body"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/12 text-white/45 transition-all duration-200 hover:border-white/35 hover:text-white active:scale-90"
+          >
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M14.5 6l-6 6 6 6" />
+            </svg>
+          </button>
+
+          <div className="relative min-w-0 flex-1 md:w-[30rem] md:max-w-[46vw] md:flex-none">
+            {/* edge fades signal more bodies off-window */}
+            <span className="pointer-events-none absolute inset-y-0 left-0 z-10 w-9 bg-gradient-to-r from-[#060a17] to-transparent" />
+            <span className="pointer-events-none absolute inset-y-0 right-0 z-10 w-9 bg-gradient-to-l from-[#060a17] to-transparent" />
+            {/* centre marker the selected chip glides onto */}
+            <span className="pointer-events-none absolute inset-y-1 left-1/2 w-px -translate-x-1/2 bg-white/10" />
+            <div
+              ref={listRef}
+              className="no-scrollbar relative flex items-center gap-1 overflow-x-auto py-1"
+            >
+              {bodies.map((b) => {
+                const active = selected?.id === b.id;
+                return (
+                  <button
+                    key={b.id}
+                    ref={(el) => {
+                      chipRefs.current[b.id] = el;
+                    }}
+                    onClick={() => onSelect(b)}
+                    aria-label={`Select ${b.name}`}
+                    className={`flex shrink-0 items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] tracking-[0.15em] transition-all duration-200 ${
+                      active
+                        ? "scale-105 bg-white/8 font-bold text-white"
+                        : "border-white/10 text-white/50 hover:border-white/30 hover:text-white/90"
+                    }`}
+                    style={
+                      active
+                        ? { borderColor: b.color, boxShadow: `0 0 12px ${b.glow}` }
+                        : undefined
+                    }
+                  >
+                    <span
+                      className="h-1.5 w-1.5 rounded-full"
+                      style={{ background: b.color, boxShadow: `0 0 6px ${b.glow}` }}
+                    />
+                    {b.name.toUpperCase()}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <button
+            onClick={() => step(1)}
+            aria-label="Next body"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/12 text-white/45 transition-all duration-200 hover:border-white/35 hover:text-white active:scale-90"
+          >
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M9.5 6l6 6-6 6" />
+            </svg>
+          </button>
         </div>
       </div>
     </div>

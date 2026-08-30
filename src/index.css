@@ -239,6 +239,17 @@ input[type="range"].zoomer::-moz-range-thumb {
   background: var(--panel-accent, #6fb1ff);
 }
 
+/* ---------- hidden scrollbar (carousel window) ---------- */
+
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* ---------- slim scrollbars ---------- */
 
 .scroll-slim::-webkit-scrollbar {

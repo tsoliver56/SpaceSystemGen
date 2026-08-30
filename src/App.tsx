@@ -1071,7 +1071,7 @@ export default function App() {
         aria-hidden="true"
         className="pointer-events-none absolute inset-x-0 bottom-0 z-0 invisible border-t border-transparent"
       >
-        <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5 md:px-6">
+        <div className="mx-auto flex max-w-[1560px] flex-wrap items-center gap-x-5 gap-y-2 px-4 py-2.5 md:px-6">
           <div className="flex items-center gap-2.5">
             <span className="h-10 w-10" />
             <span className="h-8 w-8" />
@@ -1103,16 +1103,22 @@ export default function App() {
             <span className="border px-3 py-1.5 text-[10px] font-bold tracking-[0.2em]">NEW SYSTEM</span>
             <span className="hidden text-[9px] tabular-nums tracking-widest md:block">SEED 0000</span>
           </div>
-          <div className="scroll-slim ml-auto flex max-w-full items-center gap-1 overflow-x-auto pb-0.5">
-            {system.bodies.map((b) => (
-              <span
-                key={b.id}
-                className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 px-2.5 py-1 text-[10px] tracking-[0.15em]"
-              >
-                <span className="h-1.5 w-1.5 rounded-full" />
-                {b.name.toUpperCase()}
-              </span>
-            ))}
+          <div className="flex w-full items-center gap-2 md:ml-auto md:w-auto">
+            <span className="h-7 w-7 shrink-0" />
+            <div className="relative min-w-0 flex-1 md:w-[30rem] md:max-w-[46vw] md:flex-none">
+              <div className="no-scrollbar relative flex items-center gap-1 overflow-x-auto py-1">
+                {system.bodies.map((b) => (
+                  <span
+                    key={b.id}
+                    className="flex shrink-0 items-center gap-1.5 rounded-full border border-white/10 px-2.5 py-1 text-[10px] tracking-[0.15em]"
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full" />
+                    {b.name.toUpperCase()}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <span className="h-7 w-7 shrink-0" />
           </div>
         </div>
       </div>
